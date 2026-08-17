@@ -7,6 +7,10 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// -----------------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------------
+
 enum Role {
   SUPER_ADMIN
   ADMIN
@@ -21,23 +25,45 @@ enum Plan {
   ENTERPRISE
 }
 
-enum Platform {
-  INSTAGRAM
+enum SocialPlatform {
   FACEBOOK
+  INSTAGRAM
   WHATSAPP
+  WHATSAPP_BAILEYS
   TIKTOK
   LINKEDIN
   YOUTUBE
   X
   GMAIL
   THREADS
+  PINTEREST
+  SNAPCHAT
+  REDDIT
+  TELEGRAM
+  GOOGLE_BUSINESS
+  MEDIUM
+  SMS
+  WEB_CHAT
 }
 
 enum PostStatus {
   DRAFT
+  PENDING_APPROVAL
   SCHEDULED
+  PUBLISHING
   PUBLISHED
   FAILED
+}
+
+enum PostType {
+  TEXT
+  SINGLE_IMAGE
+  CAROUSEL
+  VIDEO
+  REEL
+  STORY
+  THREAD
+  LINK
 }
 
 enum LeadStage {
@@ -45,56 +71,271 @@ enum LeadStage {
   PROSPECT
   QUALIFIED
   CUSTOMER
+  CHURNED
 }
 
+enum ThreadStatus {
+  OPEN
+  PENDING
+  RESOLVED
+  BOT_HANDLED
+}
+
+enum SenderType {
+  CUSTOMER
+  AGENT
+  AI_BOT
+  SYSTEM
+}
+
+enum CampaignType {
+  EMAIL
+  SMS
+  WHATSAPP
+  PUSH
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  COMPLETED
+  FAILED
+}
+
+// -----------------------------------------------------------------------------
+// TENANCY
+// -----------------------------------------------------------------------------
+
 model Organization {
-  id          String   @id @default(uuid())
+  id          String      @id @default(uuid())
   name        String
-  cnameDomain String?  @unique
-  plan        Plan     @default(PRO_AGENCY)
-  aiCredits   Int      @default(5000)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  slug        String      @unique @default(uuid())
+  cnameDomain String?     @unique
+  plan        Plan        @default(FREE_TRIAL)
+  aiCredits   Int         @default(5000)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
   users       User[]
-  posts       Post[]
-  leads       Lead[]
+  workspaces  Workspace[]
+  creditWallet CreditWallet?
+}
+
+model Workspace {
+  id             String   @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  settings       WorkspaceSettings?
+  members        WorkspaceMember[]
+  socialAccounts SocialAccount[]
+  posts          Post[]
+  leads          Lead[]
+  contacts       Contact[]
+  inboxThreads   InboxThread[]
+  campaigns      Campaign[]
+
+  @@index([organizationId])
+}
+
+model WorkspaceSettings {
+  workspaceId      String   @id
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  timezone         String   @default("Asia/Dhaka")
+  countryCode      String   @default("BD")
+  defaultLanguage  String   @default("bn")
+  googleCalendarId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 }
 
 model User {
-  id             String       @id @default(uuid())
-  email          String       @unique
+  id             String   @id @default(uuid())
+  email          String   @unique
   password       String
   fullName       String
-  role           Role         @default(ADMIN)
-  isSuperAdmin   Boolean      @default(false)
+  avatar         String?
+  phone          String?
+  language       String   @default("en")
+  role           Role     @default(ADMIN)
+  isSuperAdmin   Boolean  @default(false)
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdAt      DateTime     @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  workspaceMembers WorkspaceMember[]
+  posts            Post[]
+
+  @@index([organizationId])
+}
+
+model WorkspaceMember {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        Role      @default(EDITOR)
+  createdAt   DateTime  @default(now())
+
+  @@unique([workspaceId, userId])
+}
+
+model CreditWallet {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  balance        Int          @default(5000)
   updatedAt      DateTime     @updatedAt
+}
+
+// -----------------------------------------------------------------------------
+// SOCIAL MEDIA
+// -----------------------------------------------------------------------------
+
+model SocialAccount {
+  id                String         @id @default(uuid())
+  workspaceId       String
+  workspace         Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  platform          SocialPlatform
+  accountName       String
+  accountExternalId String
+  accessToken       String         @db.Text
+  refreshToken      String?        @db.Text
+  tokenExpiresAt    DateTime?
+  sessionData       Json?
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@unique([workspaceId, platform, accountExternalId])
+  @@index([workspaceId])
 }
 
 model Post {
   id             String       @id @default(uuid())
-  content        String
-  mediaUrls      String[]
-  platforms      Platform[]
+  workspaceId    String
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  authorId       String
+  author         User         @relation(fields: [authorId], references: [id])
+  content        String       @db.Text
+  mediaUrls      Json         @default("[]")
+  postType       PostType     @default(TEXT)
+  targetPlatforms Json        @default("[]")
   status         PostStatus   @default(DRAFT)
   scheduledAt    DateTime?
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  timezone       String       @default("UTC")
+  googleCalendarEventId String?
+  errorLogs      Json?
+  publishedAt    DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([status, scheduledAt])
 }
 
+// -----------------------------------------------------------------------------
+// INBOX
+// -----------------------------------------------------------------------------
+
+model InboxThread {
+  id               String         @id @default(uuid())
+  workspaceId      String
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel          SocialPlatform
+  externalSenderId String
+  customerName     String?
+  customerPhone    String?
+  customerEmail    String?
+  assignedStaffId  String?
+  status           ThreadStatus   @default(OPEN)
+  lastMessageAt    DateTime       @default(now())
+  metadata         Json?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  messages         InboxMessage[]
+
+  @@index([workspaceId, channel])
+  @@index([workspaceId, lastMessageAt(sort: Desc)])
+}
+
+model InboxMessage {
+  id          String     @id @default(uuid())
+  workspaceId String
+  threadId    String
+  thread      InboxThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderType  SenderType
+  senderId    String?
+  messageType String     @default("TEXT")
+  body        String?    @db.Text
+  mediaUrl    String?
+  createdAt   DateTime   @default(now())
+
+  @@index([threadId, createdAt(sort: Desc)])
+  @@index([workspaceId])
+}
+
+// -----------------------------------------------------------------------------
+// CRM
+// -----------------------------------------------------------------------------
+
 model Lead {
-  id             String       @id @default(uuid())
-  name           String
-  email          String?
-  phone          String?
-  stage          LeadStage    @default(NEW_LEAD)
-  score          Int          @default(50)
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  email       String?
+  phone       String?
+  stage       LeadStage @default(NEW_LEAD)
+  score       Int       @default(50)
+  tags        String[]  @default([])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, stage])
+}
+
+model Contact {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  email       String?
+  phone       String?
+  tags        String[]  @default([])
+  stage       LeadStage @default(NEW_LEAD)
+  leadScore   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+// -----------------------------------------------------------------------------
+// MARKETING
+// -----------------------------------------------------------------------------
+
+model Campaign {
+  id          String         @id @default(uuid())
+  workspaceId String
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  type        CampaignType
+  status      CampaignStatus @default(DRAFT)
+  subject     String?
+  body        String         @db.Text
+  scheduledAt DateTime?
+  sentCount   Int            @default(0)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([workspaceId, status])
 }

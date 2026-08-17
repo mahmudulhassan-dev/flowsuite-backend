@@ -4,6 +4,9 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { ENV } from './config/env';
 import { hashPassword, generateToken, verifyToken } from './utils/auth';
+import { register, login, me } from './modules/auth/auth.controller';
+import { authenticate } from './middleware/auth';
+
 
 const app = express();
 
@@ -165,34 +168,10 @@ app.get('/admin/metrics', (req: Request, res: Response) => {
 });
 
 // 3. User Authentication APIs
-app.post('/api/v1/auth/register', async (req: Request, res: Response) => {
-  try {
-    const { email, password, fullName, organizationName } = req.body;
-    if (!email || !password || !fullName || !organizationName) {
-      return res.status(400).json({ success: false, error: 'All fields are required' });
-    }
-    const hashedPassword = await hashPassword(password);
-    const mockUser = { id: 'usr_' + Date.now(), email, fullName, isSuperAdmin: false, organization: organizationName };
-    const token = generateToken({ userId: mockUser.id, email: mockUser.email, isSuperAdmin: false });
-    return res.status(201).json({ success: true, message: 'Registration successful', data: { user: mockUser, token } });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
+app.post('/api/v1/auth/register', register);
+app.post('/api/v1/auth/login', login);
+app.get('/api/v1/auth/me', authenticate, me);
 
-app.post('/api/v1/auth/login', async (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ success: false, error: 'Email and password required' });
-    }
-    const mockUser = { id: 'usr_1001', email, fullName: 'FlowSuite Admin', isSuperAdmin: false };
-    const token = generateToken({ userId: mockUser.id, email: mockUser.email, isSuperAdmin: false });
-    return res.json({ success: true, message: 'Login successful', data: { user: mockUser, token } });
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 app.listen(ENV.PORT, () => {
   console.log(`🚀 FlowSuite Backend running on port ${ENV.PORT}`);
