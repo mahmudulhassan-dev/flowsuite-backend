@@ -7,16 +7,17 @@
 # ==============================================================================
 
 set -e
+export DEBIAN_FRONTEND=noninteractive
 
 echo "🚀 Starting FlowSuite aaPanel VPS Deployment for 148.230.98.190..."
 
-sudo apt update && sudo apt install -y curl git nginx certbot python3-certbot-nginx postgresql redis-server
+sudo apt-get update -y && sudo apt-get install -y -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-confdef" curl git nginx certbot python3-certbot-nginx postgresql redis-server
 
 if ! command -v node &> /dev/null; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-    sudo apt install -y nodejs
+    sudo apt-get install -y -o Dpkg::Options::="--force-confold" nodejs
 fi
-sudo npm install -g pm2 ts-node typescript prisma
+sudo npm install -g pm2 ts-node typescript prisma --unsafe-perm
 
 mkdir -p /www/wwwroot/flowsuite.amansuite.com
 mkdir -p /www/wwwroot/suite.amanasuite.com
