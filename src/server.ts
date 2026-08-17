@@ -12,6 +12,21 @@ app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
 
+app.get('/', (req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'OK',
+    service: 'FlowSuite Enterprise Backend API & SuperAdmin Engine',
+    version: '1.0.0',
+    timestamp: new Date().toISOString(),
+    environment: ENV.NODE_ENV,
+    endpoints: {
+      health: '/api/health',
+      authRegister: '/api/v1/auth/register',
+      authLogin: '/api/v1/auth/login',
+    },
+  });
+});
+
 app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({
     status: 'OK',
