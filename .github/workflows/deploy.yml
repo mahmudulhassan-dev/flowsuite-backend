@@ -1,0 +1,31 @@
+name: FlowSuite Backend Auto-Deployment
+
+on:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  deploy:
+    name: Deploy Backend to VPS (flowsuite.amansuite.com)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: SSH VPS Deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: '148.230.98.190'
+          username: 'root'
+          password: ${{ secrets.VPS_ROOT_PASSWORD }}
+          port: 22
+          script: |
+            cd /www/wwwroot/flowsuite.amansuite.com
+            git pull origin main || true
+            npm install
+            npm run build || npx tsc
+            pm2 restart flowsuite-backend || pm2 start dist/server.js --name flowsuite-backend
+            pm2 save
