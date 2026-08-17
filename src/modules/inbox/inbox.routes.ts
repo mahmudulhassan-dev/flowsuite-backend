@@ -139,4 +139,89 @@ router.post('/threads', async (req: Request, res: Response) => {
   res.status(201).json({ success: true, data: thread });
 });
 
+// POST /api/v1/inbox/webhook/incoming (simulate/receive customer message & trigger AI chatbot reply)
+router.post('/webhook/incoming', async (req: Request, res: Response) => {
+  const { threadId, content } = req.body;
+
+  if (!threadId || !content) {
+    return res.status(400).json({ success: false, error: 'threadId and content required' });
+  }
+
+  const thread = await prisma.inboxThread.findUnique({
+    where: { id: threadId },
+  });
+  if (!thread) return res.status(404).json({ success: false, error: 'Thread not found' });
+
+  // 1. Create the customer message
+  const customerMessage = await prisma.inboxMessage.create({
+    data: {
+      workspaceId: thread.workspaceId,
+      threadId: thread.id,
+      senderType: SenderType.CUSTOMER,
+      body: content,
+    },
+  });
+
+  await prisma.inboxThread.update({
+    where: { id: thread.id },
+    data: { lastMessageAt: new Date() },
+  });
+
+  // Emit to socket
+  io.to(`workspace:${thread.workspaceId}`).emit('inbox:message', { threadId: thread.id, message: customerMessage });
+
+  // 2. Trigger AI Chatbot Response using NaraRouter API
+  let botReply = '';
+  const apiKey = process.env.NARA_ROUTER_API_KEY;
+
+  if (apiKey) {
+    try {
+      const systemPrompt = "You are an AI virtual support agent for FlowSuite, an omnichannel marketing and CRM SaaS platform. Answer the customer's question politely, concisely (under 3 sentences), and professionally. If you cannot help, ask them to wait for a human agent.";
+      const model = process.env.NARA_ROUTER_MODEL || 'deepseek-v4-flash-free';
+
+      const response = await fetch('https://router.bynara.id/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: content },
+          ],
+          temperature: 0.7,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json() as any;
+        botReply = data?.choices?.[0]?.message?.content || '';
+      }
+    } catch (e) {
+      console.error('Chatbot fail to connect to NaraRouter:', e);
+    }
+  }
+
+  if (!botReply) {
+    botReply = "Thank you for writing to us. Our support team has been notified, and we will get back to you shortly.";
+  }
+
+  // 3. Create the AI Bot reply message
+  const botMessage = await prisma.inboxMessage.create({
+    data: {
+      workspaceId: thread.workspaceId,
+      threadId: thread.id,
+      senderType: SenderType.AI_BOT,
+      body: botReply,
+    },
+  });
+
+  // Emit bot reply to socket
+  io.to(`workspace:${thread.workspaceId}`).emit('inbox:message', { threadId: thread.id, message: botMessage });
+
+  res.json({ success: true, customerMessage, botMessage });
+});
+
 export default router;
