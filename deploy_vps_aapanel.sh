@@ -9,7 +9,7 @@
 set -e
 export DEBIAN_FRONTEND=noninteractive
 
-echo "🚀 Starting FlowSuite aaPanel VPS Deployment for 148.230.98.190..."
+echo "Starting FlowSuite aaPanel VPS Deployment for 148.230.98.190..."
 
 sudo apt-get update -y && sudo apt-get install -y -o Dpkg::Options::="--force-confold" -o Dpkg::Options::="--force-confdef" curl git nginx certbot python3-certbot-nginx postgresql redis-server
 
@@ -17,12 +17,15 @@ if ! command -v node &> /dev/null; then
     curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
     sudo apt-get install -y -o Dpkg::Options::="--force-confold" nodejs
 fi
-sudo npm install -g pm2 ts-node typescript prisma --unsafe-perm
+
+if ! command -v pm2 &> /dev/null; then
+    sudo npm install -g pm2 ts-node typescript prisma --force || true
+fi
 
 mkdir -p /www/wwwroot/flowsuite.amansuite.com
 mkdir -p /www/wwwroot/suite.amanasuite.com
 
-echo "📦 Syncing Repositories from mahmudulhassan-dev..."
+echo "Syncing Repositories from mahmudulhassan-dev..."
 
 if [ ! -d "/www/wwwroot/flowsuite.amansuite.com/.git" ]; then
     git clone https://github.com/mahmudulhassan-dev/flowsuite-backend.git /www/wwwroot/flowsuite.amansuite.com
@@ -33,7 +36,7 @@ fi
 
 cd /www/wwwroot/flowsuite.amansuite.com
 npm install
-npm run build || tsc
+npm run build || npx tsc
 
 if [ ! -d "/www/wwwroot/suite.amanasuite.com/.git" ]; then
     git clone https://github.com/mahmudulhassan-dev/flowsuite-frontend.git /www/wwwroot/suite.amanasuite.com
@@ -46,16 +49,16 @@ cd /www/wwwroot/suite.amanasuite.com
 npm install
 npm run build
 
-echo "⚡ Launching PM2 Server Instances..."
+echo "Launching PM2 Server Instances..."
 cd /www/wwwroot/flowsuite.amansuite.com
-pm2 start dist/server.js --name "flowsuite-backend" || pm2 restart "flowsuite-backend"
+pm2 start dist/server.js --name "flowsuite-backend" || pm2 restart "flowsuite-backend" || true
 
 cd /www/wwwroot/suite.amanasuite.com
-pm2 start npm --name "flowsuite-frontend" -- start || pm2 restart "flowsuite-frontend"
+pm2 start npm --name "flowsuite-frontend" -- start || pm2 restart "flowsuite-frontend" || true
 
-pm2 save
+pm2 save || true
 
-echo "🌐 Configuring aaPanel Nginx Site Blocks..."
+echo "Configuring aaPanel Nginx Site Blocks..."
 
 cat << 'EOF' > /www/server/panel/vhost/nginx/flowsuite.amansuite.com.conf
 server {
@@ -97,7 +100,7 @@ EOF
 
 sudo nginx -t && sudo nginx -s reload
 
-echo "🔒 Activating Let's Encrypt SSL Certificates..."
+echo "Activating Let's Encrypt SSL Certificates..."
 sudo certbot --nginx -d flowsuite.amansuite.com -d suite.amanasuite.com --non-interactive --agree-tos -m admin@amansuite.com || true
 
-echo "✅ FlowSuite aaPanel VPS Deployment Completed Successfully!"
+echo "FlowSuite aaPanel VPS Deployment Completed Successfully!"
