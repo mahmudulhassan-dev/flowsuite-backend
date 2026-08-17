@@ -38,18 +38,65 @@ router.post('/generate', async (req: Request, res: Response) => {
     data: { balance: { decrement: creditCost } },
   });
 
-  // Generate demo content (replace with real LLM call)
-  const outputs: Record<string, string> = {
-    caption: `✨ ${prompt}\n\nExperience the difference today! 🚀 #${platform ?? 'social'} #marketing #growth`,
-    hashtags: `#${prompt.split(' ').slice(0, 5).map((w: string) => w.toLowerCase()).join(' #')} #trending #viral #marketing`,
-    email: `Subject: ${prompt}\n\nDear Customer,\n\n${prompt}\n\nBest regards,\nThe Team`,
-    reply: `Thank you for reaching out! ${prompt} We'll get back to you shortly. 😊`,
-    ad_copy: `🔥 ${prompt} | Limited time offer!\n\nDon't miss out — act now and transform your results today!`,
-    blog: `# ${prompt}\n\nIn today's digital landscape, ${prompt.toLowerCase()} has become increasingly important...`,
-    image_prompt: `Professional ${tone} photograph of ${prompt}, high quality, 4K, studio lighting, ${platform} optimized`,
-  };
+  // Generate content using NaraRouter API if configured
+  let output = '';
+  const apiKey = process.env.NARA_ROUTER_API_KEY;
 
-  const output = outputs[task] ?? `Generated content for: ${prompt}`;
+  if (apiKey) {
+    try {
+      const systemPrompts: Record<string, string> = {
+        caption: `You are an expert social media caption writer. Write a catchy, engaging caption in ${language} with appropriate emojis, based on the prompt. Keep the tone ${tone} and target platform ${platform ?? 'social media'}.`,
+        hashtags: `You are a social media growth expert. Generate a space-separated list of 10-15 relevant, trending hashtags for the prompt.`,
+        email: `You are a professional email campaign manager. Write a structured email campaign with a subject line and body copy in ${language}. Tone: ${tone}.`,
+        reply: `You are a helpful, polite customer support agent. Write a quick reply response in ${language} based on the prompt.`,
+        ad_copy: `You are a direct-response copywriter. Write high-converting ad copy with an attention-grabbing headline, benefit bullet points, and a strong call to action. Language: ${language}.`,
+        blog: `Write an SEO-optimized blog post section in ${language} on the topic of the prompt. Use clean formatting and headings.`,
+        image_prompt: `Generate a detailed stable diffusion or Midjourney image prompt based on the prompt. Describe subject, scene settings, style, tone (${tone}), lighting, and camera details.`,
+      };
+
+      const systemPrompt = systemPrompts[task] ?? `You are a helpful assistant. Generate content in ${language}.`;
+      const model = process.env.NARA_ROUTER_MODEL || 'meta-llama/llama-3-8b-instruct';
+
+      const response = await fetch('https://router.bynara.id/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: prompt },
+          ],
+          temperature: 0.7,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json() as any;
+        output = data?.choices?.[0]?.message?.content || '';
+      } else {
+        console.error('NaraRouter API error response status:', response.status);
+      }
+    } catch (error) {
+      console.error('Failed to contact NaraRouter API:', error);
+    }
+  }
+
+  // Fallback to static mock outputs if NaraRouter is not configured or failed
+  if (!output) {
+    const outputs: Record<string, string> = {
+      caption: `✨ ${prompt}\n\nExperience the difference today! 🚀 #${platform ?? 'social'} #marketing #growth`,
+      hashtags: `#${prompt.split(' ').slice(0, 5).map((w: string) => w.toLowerCase()).join(' #')} #trending #viral #marketing`,
+      email: `Subject: ${prompt}\n\nDear Customer,\n\n${prompt}\n\nBest regards,\nThe Team`,
+      reply: `Thank you for reaching out! ${prompt} We'll get back to you shortly. 😊`,
+      ad_copy: `🔥 ${prompt} | Limited time offer!\n\nDon't miss out — act now and transform your results today!`,
+      blog: `# ${prompt}\n\nIn today's digital landscape, ${prompt.toLowerCase()} has become increasingly important...`,
+      image_prompt: `Professional ${tone} photograph of ${prompt}, high quality, 4K, studio lighting, ${platform} optimized`,
+    };
+    output = outputs[task] ?? `Generated content for: ${prompt}`;
+  }
 
   res.json({ success: true, data: { output, task, creditsUsed: creditCost, remainingCredits: wallet.balance - creditCost } });
 });
