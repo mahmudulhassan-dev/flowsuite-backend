@@ -1,0 +1,100 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  EDITOR
+  VIEWER
+}
+
+enum Plan {
+  FREE_TRIAL
+  PRO_AGENCY
+  ENTERPRISE
+}
+
+enum Platform {
+  INSTAGRAM
+  FACEBOOK
+  WHATSAPP
+  TIKTOK
+  LINKEDIN
+  YOUTUBE
+  X
+  GMAIL
+  THREADS
+}
+
+enum PostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  FAILED
+}
+
+enum LeadStage {
+  NEW_LEAD
+  PROSPECT
+  QUALIFIED
+  CUSTOMER
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  cnameDomain String?  @unique
+  plan        Plan     @default(PRO_AGENCY)
+  aiCredits   Int      @default(5000)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  users       User[]
+  posts       Post[]
+  leads       Lead[]
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  password       String
+  fullName       String
+  role           Role         @default(ADMIN)
+  isSuperAdmin   Boolean      @default(false)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Post {
+  id             String       @id @default(uuid())
+  content        String
+  mediaUrls      String[]
+  platforms      Platform[]
+  status         PostStatus   @default(DRAFT)
+  scheduledAt    DateTime?
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Lead {
+  id             String       @id @default(uuid())
+  name           String
+  email          String?
+  phone          String?
+  stage          LeadStage    @default(NEW_LEAD)
+  score          Int          @default(50)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
