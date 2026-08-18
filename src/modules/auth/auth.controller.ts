@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { prisma } from '../../lib/prisma';
 import { hashPassword, comparePassword, generateToken } from '../../utils/auth';
+import { sendMail, buildWelcomeEmail, buildPasswordResetEmail } from '../../lib/mailer';
+import crypto from 'crypto';
 
 export async function register(req: Request, res: Response): Promise<void> {
   try {
@@ -80,6 +82,13 @@ export async function register(req: Request, res: Response): Promise<void> {
       workspaceId: result.workspace.id,
       isSuperAdmin: false,
     });
+
+    // Fire-and-forget welcome email via Hostinger SMTP
+    sendMail({
+      to: result.user.email,
+      subject: '🎉 Welcome to FlowSuite — Your account is ready!',
+      html: buildWelcomeEmail(result.user.fullName, result.user.email),
+    }).catch(err => console.error('Welcome email failed:', err));
 
     res.status(201).json({
       success: true,
@@ -214,6 +223,89 @@ export async function me(req: Request, res: Response): Promise<void> {
         workspaces: memberships.map(m => m.workspace),
       },
     });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FORGOT PASSWORD — Send reset link via Hostinger SMTP
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function forgotPassword(req: Request, res: Response): Promise<void> {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ success: false, error: 'Email is required' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    // Always respond with success to prevent email enumeration
+    if (!user) {
+      res.json({ success: true, message: 'If that email exists, a reset link has been sent.' });
+      return;
+    }
+
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetExpiry = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordResetToken: resetToken,
+        passwordResetExpiry: resetExpiry,
+      },
+    });
+
+    await sendMail({
+      to: user.email,
+      subject: '🔐 Reset your FlowSuite password',
+      html: buildPasswordResetEmail(user.fullName, resetToken),
+    });
+
+    res.json({ success: true, message: 'Password reset link sent to your email.' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESET PASSWORD — Consume token and update password
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function resetPassword(req: Request, res: Response): Promise<void> {
+  try {
+    const { token, newPassword } = req.body;
+    if (!token || !newPassword) {
+      res.status(400).json({ success: false, error: 'Token and new password are required' });
+      return;
+    }
+
+    const user = await prisma.user.findFirst({
+      where: {
+        passwordResetToken: token,
+        passwordResetExpiry: { gte: new Date() },
+      },
+    });
+
+    if (!user) {
+      res.status(400).json({ success: false, error: 'Invalid or expired reset token' });
+      return;
+    }
+
+    const hashed = await hashPassword(newPassword);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashed,
+        passwordResetToken: null,
+        passwordResetExpiry: null,
+      },
+    });
+
+    res.json({ success: true, message: 'Password reset successfully. You can now log in.' });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
