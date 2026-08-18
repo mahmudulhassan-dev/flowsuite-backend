@@ -21,6 +21,7 @@ import adminRouter from './modules/admin/admin.routes';
 import { shortenerRouter, publicShortenerRouter } from './modules/shortener/shortener.routes';
 import qrRouter from './modules/qr/qr.routes';
 import { biolinkRouter, publicBiolinkRouter } from './modules/biolink/biolink.routes';
+import { startPublisherWorker } from './modules/publisher/publisher.worker';
 
 const app = express();
 const httpServer = createServer(app);
@@ -105,4 +106,5 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 httpServer.listen(ENV.PORT, () => {
   console.log(`🚀 FlowSuite Backend v2.0 running on port ${ENV.PORT}`);
   console.log(`🔌 Socket.io ready at ws://localhost:${ENV.PORT}`);
+  startPublisherWorker(); // Start scheduled auto-posting worker
 });

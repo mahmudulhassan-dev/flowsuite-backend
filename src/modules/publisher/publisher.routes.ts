@@ -42,10 +42,12 @@ router.get('/posts', async (req: Request, res: Response) => {
 // POST /api/v1/publisher/posts
 router.post('/posts', async (req: Request, res: Response) => {
   const { workspaceId, userId } = (req as any).user;
-  const { content, platform, scheduledAt, mediaUrls = [], postType = 'TEXT' } = req.body;
+  const { content, platform, targetPlatforms = [], scheduledAt, mediaUrls = [], postType = 'TEXT' } = req.body;
 
-  if (!content || !platform) {
-    return res.status(400).json({ success: false, error: 'content and platform required' });
+  const platforms = targetPlatforms.length > 0 ? targetPlatforms : (platform ? [platform] : []);
+
+  if (!content || platforms.length === 0) {
+    return res.status(400).json({ success: false, error: 'content and target platform(s) are required' });
   }
 
   const post = await prisma.post.create({
@@ -55,7 +57,7 @@ router.post('/posts', async (req: Request, res: Response) => {
       content,
       mediaUrls: mediaUrls,
       postType: String(postType).toUpperCase() as PostType,
-      targetPlatforms: [platform],
+      targetPlatforms: platforms,
       scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
       status: scheduledAt ? PostStatus.SCHEDULED : PostStatus.DRAFT,
     },
