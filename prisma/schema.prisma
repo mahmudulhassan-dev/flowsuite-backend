@@ -224,6 +224,8 @@ model Workspace {
   aiAgents        AIAgent[]
   auditLogs       AuditLog[]
   webhookEvents   WebhookEvent[]
+  biolinks        BiolinkPage[]
+  qrCodes         QrCode[]
 
   @@index([organizationId])
 }
@@ -782,4 +784,50 @@ model TicketMessage {
   message     String   @db.Text
   attachments Json?
   createdAt   DateTime @default(now())
+}
+
+model BiolinkPage {
+  id              String         @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  urlSlug         String         @unique
+  title           String?
+  description     String?
+  logoUrl         String?
+  themeSettings   Json           @default("{}")
+  isActive        Boolean        @default(true)
+  viewsCount      Int            @default(0)
+  blocks          BiolinkBlock[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([workspaceId])
+}
+
+model BiolinkBlock {
+  id            String      @id @default(uuid())
+  biolinkPageId String
+  biolinkPage   BiolinkPage @relation(fields: [biolinkPageId], references: [id], onDelete: Cascade)
+  type          String
+  config        Json
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([biolinkPageId])
+}
+
+model QrCode {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  type        String
+  config      Json
+  shortSlug   String?   @unique
+  scansCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
 }

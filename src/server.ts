@@ -18,6 +18,9 @@ import aiRouter from './modules/ai/ai.routes';
 import billingRouter from './modules/billing/billing.routes';
 import workspaceRouter from './modules/workspace/workspace.routes';
 import adminRouter from './modules/admin/admin.routes';
+import { shortenerRouter, publicShortenerRouter } from './modules/shortener/shortener.routes';
+import qrRouter from './modules/qr/qr.routes';
+import { biolinkRouter, publicBiolinkRouter } from './modules/biolink/biolink.routes';
 
 const app = express();
 const httpServer = createServer(app);
@@ -82,6 +85,13 @@ app.use('/api/v1/marketing', authenticate, marketingRouter);
 app.use('/api/v1/ai', authenticate, aiRouter);
 app.use('/api/v1/billing', authenticate, billingRouter);
 app.use('/api/v1/workspace', authenticate, workspaceRouter);
+app.use('/api/v1/links', shortenerRouter);
+app.use('/api/v1/qr', qrRouter);
+app.use('/api/v1/biolinks', biolinkRouter);
+
+// Public Link Redirection & Bio Landing Rendering
+app.use('/s', publicShortenerRouter);
+app.use('/b', publicBiolinkRouter);
 
 // SuperAdmin routes (no user auth — uses separate admin token check)
 app.use('/admin', adminRouter);
