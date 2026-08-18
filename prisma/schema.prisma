@@ -226,6 +226,14 @@ model Workspace {
   webhookEvents   WebhookEvent[]
   biolinks        BiolinkPage[]
   qrCodes         QrCode[]
+  crmCustomers    CrmCustomer[]
+  crmInvoices     CrmInvoice[]
+  crmEstimates    CrmEstimate[]
+  crmProposals    CrmProposal[]
+  crmProjects     CrmProject[]
+  crmContracts    CrmContract[]
+  crmTickets      CrmTicket[]
+  smtpServers     MarketingSmtpServer[]
 
   @@index([organizationId])
 }
@@ -831,3 +839,267 @@ model QrCode {
 
   @@index([workspaceId])
 }
+
+// -----------------------------------------------------------------------------
+// CRM MODULE MODELS
+// -----------------------------------------------------------------------------
+
+model CrmCustomer {
+  id          String               @id @default(uuid())
+  workspaceId String
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  companyName String
+  address     String?
+  city        String?
+  state       String?
+  zipCode     String?
+  country     String?
+  phone       String?
+  website     String?
+  currency    String               @default("USD")
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  contacts    CrmCustomerContact[]
+  invoices    CrmInvoice[]
+  estimates   CrmEstimate[]
+  proposals   CrmProposal[]
+  projects    CrmProject[]
+  contracts   CrmContract[]
+
+  @@index([workspaceId])
+}
+
+model CrmCustomerContact {
+  id          String      @id @default(uuid())
+  customerId  String
+  customer    CrmCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  firstName   String
+  lastName    String
+  email       String      @unique
+  phone       String?
+  password    String?
+  permissions Json?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([customerId])
+}
+
+model CrmInvoice {
+  id              String           @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  customerId      String
+  customer        CrmCustomer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  invoiceNumber   String
+  status          String           @default("DRAFT")
+  issueDate       DateTime
+  dueDate         DateTime
+  currency        String           @default("USD")
+  subtotal        Float
+  taxTotal        Float
+  total           Float
+  isRecurring     Boolean          @default(false)
+  recurringPeriod String?
+  recurringCycle  Int?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  items           CrmInvoiceItem[]
+
+  @@index([workspaceId])
+  @@index([customerId])
+}
+
+model CrmInvoiceItem {
+  id          String     @id @default(uuid())
+  invoiceId   String
+  invoice     CrmInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float
+  rate        Float
+  taxPercent  Float      @default(0.0)
+  total       Float
+
+  @@index([invoiceId])
+}
+
+model CrmEstimate {
+  id             String            @id @default(uuid())
+  workspaceId    String
+  workspace      Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  customerId     String
+  customer       CrmCustomer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  estimateNumber String
+  status         String            @default("DRAFT")
+  issueDate      DateTime
+  expiryDate     DateTime
+  subtotal       Float
+  taxTotal       Float
+  total          Float
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  items          CrmEstimateItem[]
+
+  @@index([workspaceId])
+  @@index([customerId])
+}
+
+model CrmEstimateItem {
+  id          String      @id @default(uuid())
+  estimateId  String
+  estimate    CrmEstimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float
+  rate        Float
+  taxPercent  Float       @default(0.0)
+  total       Float
+
+  @@index([estimateId])
+}
+
+model CrmProposal {
+  id          String       @id @default(uuid())
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  customerId  String?
+  customer    CrmCustomer? @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  leadId      String?
+  subject     String
+  content     String       @db.Text
+  status      String       @default("DRAFT")
+  total       Float
+  expiryDate  DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([workspaceId])
+  @@index([customerId])
+}
+
+model CrmProject {
+  id          String                 @id @default(uuid())
+  workspaceId String
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  customerId  String
+  customer    CrmCustomer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  status      String                 @default("NOT_STARTED")
+  startDate   DateTime?
+  deadline    DateTime?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  milestones  CrmProjectMilestone[]
+  tasks       CrmProjectTask[]
+
+  @@index([workspaceId])
+  @@index([customerId])
+}
+
+model CrmProjectMilestone {
+  id          String           @id @default(uuid())
+  projectId   String
+  project     CrmProject       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  order       Int              @default(0)
+  createdAt   DateTime         @default(now())
+
+  tasks       CrmProjectTask[]
+
+  @@index([projectId])
+}
+
+model CrmProjectTask {
+  id          String               @id @default(uuid())
+  projectId   String
+  project     CrmProject           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneId String?
+  milestone   CrmProjectMilestone? @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  status      String               @default("BACKLOG")
+  priority    String               @default("MEDIUM")
+  dueDate     DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([projectId])
+  @@index([milestoneId])
+}
+
+model CrmContract {
+  id            String      @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  customerId    String
+  customer      CrmCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  subject       String
+  contractValue Float
+  startDate     DateTime
+  endDate       DateTime?
+  content       String      @db.Text
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([workspaceId])
+  @@index([customerId])
+}
+
+model CrmTicket {
+  id            String           @id @default(uuid())
+  workspaceId   String
+  workspace     Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  department    String
+  subject       String
+  priority      String           @default("MEDIUM")
+  status        String           @default("OPEN")
+  customerName  String
+  customerEmail String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  replies       CrmTicketReply[]
+
+  @@index([workspaceId])
+}
+
+model CrmTicketReply {
+  id          String    @id @default(uuid())
+  ticketId    String
+  ticket      CrmTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderName  String
+  senderEmail String
+  message     String    @db.Text
+  isAdminReply Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+
+  @@index([ticketId])
+}
+
+// -----------------------------------------------------------------------------
+// MARKETING MODULE ADDITIONS
+// -----------------------------------------------------------------------------
+
+model MarketingSmtpServer {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  host        String
+  port        Int
+  secure      Boolean   @default(true)
+  username    String
+  password    String
+  fromEmail   String
+  fromName    String
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+}
+
