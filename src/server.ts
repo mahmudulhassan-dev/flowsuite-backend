@@ -22,6 +22,12 @@ import { shortenerRouter, publicShortenerRouter } from './modules/shortener/shor
 import qrRouter from './modules/qr/qr.routes';
 import { biolinkRouter, publicBiolinkRouter } from './modules/biolink/biolink.routes';
 import { startPublisherWorker } from './modules/publisher/publisher.worker';
+// Phase 3 modules
+import subscribersRouter from './modules/subscribers/subscribers.routes';
+import reportsRouter from './modules/reports/reports.routes';
+import knowledgeRouter from './modules/knowledge/knowledge.routes';
+import { startRecurringWorker } from './modules/recurring/recurring.worker';
+
 
 const app = express();
 const httpServer = createServer(app);
@@ -91,6 +97,12 @@ app.use('/api/v1/workspace', authenticate, workspaceRouter);
 app.use('/api/v1/links', shortenerRouter);
 app.use('/api/v1/qr', qrRouter);
 app.use('/api/v1/biolinks', biolinkRouter);
+// Phase 3 routes
+app.use('/api/v1/subscribers', authenticate, subscribersRouter);
+app.use('/api/v1/reports', authenticate, reportsRouter);
+app.use('/api/v1/knowledge', authenticate, knowledgeRouter);
+// Public form submission (no auth)
+app.use('/api/v1/public/forms', (req, _res, next) => { req.user = undefined as never; next(); }, knowledgeRouter);
 
 // Public Link Redirection & Bio Landing Rendering
 app.use('/s', publicShortenerRouter);
@@ -109,4 +121,5 @@ httpServer.listen(ENV.PORT, () => {
   console.log(`🚀 FlowSuite Backend v2.0 running on port ${ENV.PORT}`);
   console.log(`🔌 Socket.io ready at ws://localhost:${ENV.PORT}`);
   startPublisherWorker(); // Start scheduled auto-posting worker
+  startRecurringWorker(); // Start recurring invoices/expenses/tasks worker
 });

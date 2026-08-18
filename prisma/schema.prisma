@@ -234,9 +234,27 @@ model Workspace {
   crmContracts    CrmContract[]
   crmTickets      CrmTicket[]
   smtpServers     MarketingSmtpServer[]
+  // Phase 3 relations
+  subscriberLists  SubscriberList[]
+  smsProviders     SmsProvider[]
+  recurringInvoices RecurringInvoice[]
+  expenses         Expense[]
+  recurringExpenses RecurringExpense[]
+  activityLogs     ActivityLog[]
+  crmGoals         CrmGoal[]
+  staffTasks       StaffTask[]
+  staffReminders   StaffReminder[]
+  kbCategories     KbCategory[]
+  kbArticles       KbArticle[]
+  surveys          Survey[]
+  crmWebForms      CrmWebForm[]
+  newsfeedPosts    NewsfeedPost[]
+  companyEvents    CompanyEvent[]
 
   @@index([organizationId])
 }
+
+
 
 model WorkspaceSettings {
   workspaceId      String   @id
@@ -536,6 +554,7 @@ model Campaign {
   sentCount   Int            @default(0)
   posts       Post[]
   shortLinks  ShortLink[]
+  events      CampaignEvent[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -863,12 +882,14 @@ model CrmCustomer {
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
 
-  contacts    CrmCustomerContact[]
-  invoices    CrmInvoice[]
-  estimates   CrmEstimate[]
-  proposals   CrmProposal[]
-  projects    CrmProject[]
-  contracts   CrmContract[]
+  contacts          CrmCustomerContact[]
+  invoices          CrmInvoice[]
+  estimates         CrmEstimate[]
+  proposals         CrmProposal[]
+  projects          CrmProject[]
+  contracts         CrmContract[]
+  recurringInvoices RecurringInvoice[]
+  expenses          Expense[]
 
   @@index([workspaceId])
 }
@@ -1105,4 +1126,374 @@ model MarketingSmtpServer {
 
   @@index([workspaceId])
 }
+
+// =============================================================================
+// PHASE 3 — EMAIL MARKETING ENGINE
+// =============================================================================
+
+model SubscriberList {
+  id          String       @id @default(uuid())
+  workspaceId String
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  subscribers Subscriber[]
+
+  @@index([workspaceId])
+}
+
+model Subscriber {
+  id           String         @id @default(uuid())
+  listId       String
+  list         SubscriberList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  email        String
+  firstName    String?
+  lastName     String?
+  phone        String?
+  status       String         @default("SUBSCRIBED")   // SUBSCRIBED | UNSUBSCRIBED | BOUNCED | COMPLAINED
+  country      String?
+  city         String?
+  timezone     String?
+  ipAddress    String?
+  customFields Json?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  events       CampaignEvent[]
+
+  @@unique([listId, email])
+  @@index([listId])
+  @@index([status])
+}
+
+model CampaignEvent {
+  id           String      @id @default(uuid())
+  campaignId   String
+  campaign     Campaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  subscriberId String?
+  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: SetNull)
+  type         String      // OPEN | CLICK | BOUNCE | UNSUBSCRIBE | COMPLAINT
+  url          String?
+  ipAddress    String?
+  userAgent    String?
+  country      String?
+  city         String?
+  createdAt    DateTime    @default(now())
+
+  @@index([campaignId])
+  @@index([subscriberId])
+  @@index([type])
+}
+
+model SmsProvider {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  type        String    @default("SSL_WIRELESS")  // SSL_WIRELESS | TWILIO | VONAGE | CUSTOM
+  apiKey      String
+  apiSecret   String?
+  fromNumber  String?
+  baseUrl     String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+}
+
+// =============================================================================
+// PHASE 3 — RECURRING BILLING & EXPENSES
+// =============================================================================
+
+model RecurringInvoice {
+  id              String       @id @default(uuid())
+  workspaceId     String
+  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  customerId      String
+  customer        CrmCustomer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  invoicePrefix   String       @default("INV")
+  period          String       @default("MONTHLY")  // DAILY | WEEKLY | MONTHLY | YEARLY
+  cycleCount      Int          @default(0)
+  maxCycles       Int?
+  nextRunAt       DateTime
+  lastRunAt       DateTime?
+  currency        String       @default("USD")
+  subtotal        Float
+  taxTotal        Float
+  total           Float
+  items           Json         // Array of {description, quantity, rate, taxPercent}
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([workspaceId])
+  @@index([nextRunAt])
+}
+
+model Expense {
+  id          String      @id @default(uuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  customerId  String?
+  customer    CrmCustomer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  name        String
+  category    String?
+  amount      Float
+  currency    String      @default("USD")
+  date        DateTime
+  note        String?
+  receiptUrl  String?
+  billable    Boolean     @default(false)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([workspaceId])
+}
+
+model RecurringExpense {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  category    String?
+  amount      Float
+  currency    String    @default("USD")
+  period      String    @default("MONTHLY")
+  nextRunAt   DateTime
+  lastRunAt   DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([nextRunAt])
+}
+
+// =============================================================================
+// PHASE 3 — ACTIVITY LOG & GOALS
+// =============================================================================
+
+model ActivityLog {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  action      String    // CREATED | UPDATED | DELETED | VIEWED | SENT
+  entityType  String    // CrmCustomer | CrmInvoice | Campaign | ...
+  entityId    String
+  entityLabel String?
+  metadata    Json?
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([entityType])
+}
+
+model CrmGoal {
+  id           String    @id @default(uuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title        String
+  type         String    @default("REVENUE")  // REVENUE | LEADS | CALLS | TASKS
+  targetValue  Float
+  currentValue Float     @default(0)
+  deadline     DateTime?
+  color        String    @default("#7c3aed")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+// =============================================================================
+// PHASE 3 — STAFF OPERATIONS
+// =============================================================================
+
+model StaffTask {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  status      String    @default("TODO")      // TODO | IN_PROGRESS | DONE | CANCELLED
+  priority    String    @default("MEDIUM")    // LOW | MEDIUM | HIGH | URGENT
+  dueDate     DateTime?
+  assigneeIds Json?                           // Array of userId strings
+  isRecurring Boolean   @default(false)
+  recurringPeriod String?
+  nextRunAt   DateTime?
+  linkedType  String?                         // CrmCustomer | CrmProject | CrmInvoice
+  linkedId    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+model StaffReminder {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  message     String
+  remindAt    DateTime
+  notifyEmail Boolean   @default(true)
+  notifyBuiltIn Boolean @default(true)
+  isSent      Boolean   @default(false)
+  linkedType  String?
+  linkedId    String?
+  createdAt   DateTime  @default(now())
+
+  @@index([workspaceId])
+  @@index([remindAt, isSent])
+}
+
+// =============================================================================
+// PHASE 3 — KNOWLEDGE BASE & SURVEYS
+// =============================================================================
+
+model KbCategory {
+  id          String      @id @default(uuid())
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  order       Int         @default(0)
+  createdAt   DateTime    @default(now())
+
+  articles    KbArticle[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+model KbArticle {
+  id          String     @id @default(uuid())
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  categoryId  String?
+  category    KbCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  title       String
+  slug        String
+  content     String     @db.Text
+  views       Int        @default(0)
+  helpful     Int        @default(0)
+  notHelpful  Int        @default(0)
+  isPublic    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+model Survey {
+  id          String           @id @default(uuid())
+  workspaceId String
+  workspace   Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  slug        String
+  isPublic    Boolean          @default(false)
+  closedAt    DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  questions   SurveyQuestion[]
+  responses   SurveyResponse[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+model SurveyQuestion {
+  id          String    @id @default(uuid())
+  surveyId    String
+  survey      Survey    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  question    String
+  type        String    @default("TEXT")   // TEXT | MULTIPLE_CHOICE | RATING | YES_NO
+  options     Json?     // For MULTIPLE_CHOICE: array of strings
+  order       Int       @default(0)
+  required    Boolean   @default(false)
+
+  @@index([surveyId])
+}
+
+model SurveyResponse {
+  id          String    @id @default(uuid())
+  surveyId    String
+  survey      Survey    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  respondentEmail String?
+  answers     Json      // { questionId: answer }
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([surveyId])
+}
+
+// =============================================================================
+// PHASE 3 — WEB-TO-LEAD FORMS
+// =============================================================================
+
+model CrmWebForm {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  fields      Json      // Array of {name, type, label, required}
+  redirectUrl String?
+  thankYouMsg String?
+  isActive    Boolean   @default(true)
+  submissions Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+// =============================================================================
+// PHASE 3 — COMPANY OPERATIONS
+// =============================================================================
+
+model NewsfeedPost {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  authorId    String
+  content     String    @db.Text
+  attachments Json?     // Array of {url, name, type}
+  visibility  String    @default("ALL")   // ALL | DEPARTMENT
+  department  String?
+  likesCount  Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+}
+
+model CompanyEvent {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  startAt     DateTime
+  endAt       DateTime?
+  color       String    @default("#7c3aed")
+  isPublic    Boolean   @default(true)
+  location    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([startAt])
+}
+
 
