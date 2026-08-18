@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../../lib/prisma';
+import { PlanType } from '@prisma/client';
 import os from 'os';
 
 const router = Router();
@@ -11,10 +12,10 @@ const getAdminHtml = async () => {
   const userCount = await prisma.user.count();
   const workspaceCount = await prisma.workspace.count();
   
-  // Calculate fake/simulated MRR based on plans
-  const enterpriseCount = await prisma.organization.count({ where: { plan: 'ENTERPRISE' } });
-  const proCount = await prisma.organization.count({ where: { plan: 'PRO_AGENCY' } });
-  const trialCount = await prisma.organization.count({ where: { plan: 'FREE_TRIAL' } });
+  // Calculate MRR based on plans (using PlanType enum)
+  const enterpriseCount = await prisma.organization.count({ where: { plan: PlanType.ENTERPRISE } });
+  const proCount = await prisma.organization.count({ where: { plan: PlanType.PRO_AGENCY } });
+  const trialCount = await prisma.organization.count({ where: { plan: PlanType.FREE_TRIAL } });
   
   const mrr = (enterpriseCount * 299) + (proCount * 99) + (trialCount * 0);
   

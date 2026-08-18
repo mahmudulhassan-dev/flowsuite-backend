@@ -132,7 +132,7 @@ router.post('/threads', async (req: Request, res: Response) => {
       customerEmail,
       customerPhone,
       externalSenderId: customerEmail || customerPhone || `manual-${Date.now()}`,
-      channel: mapPlatform(channel),
+      platform: mapPlatform(channel),
       status: ThreadStatus.OPEN,
     },
   });
