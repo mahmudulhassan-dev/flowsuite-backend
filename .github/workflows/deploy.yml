@@ -26,6 +26,8 @@ jobs:
             cd /www/wwwroot/flowsuite.amansuite.com
             git pull origin main || true
             npm install
+            npx prisma generate
+            npx prisma db push || true
             npm run build || npx tsc
             pm2 restart flowsuite-backend || pm2 start dist/server.js --name flowsuite-backend
             pm2 save
