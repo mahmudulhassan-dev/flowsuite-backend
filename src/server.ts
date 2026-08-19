@@ -2,12 +2,14 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
+import path from 'path';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { ENV } from './config/env';
 import { register, login, me, forgotPassword, resetPassword, sendOtp, verifyOtp, socialLogin } from './modules/auth/auth.controller';
 import { authenticate } from './middleware/auth';
 import { verifyToken } from './utils/auth';
+import assetsRouter from './modules/assets/assets.routes';
 
 // Module routes
 import inboxRouter from './modules/inbox/inbox.routes';
@@ -75,6 +77,7 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
+app.use('/uploads', express.static(path.join(process.cwd(), 'public', 'uploads')));
 app.use(morgan('dev'));
 
 // Health routes
@@ -105,6 +108,7 @@ app.use('/api/v1/ai', authenticate, aiRouter);
 app.use('/api/v1/billing', authenticate, billingRouter);
 app.use('/api/v1/workspace', authenticate, workspaceRouter);
 app.use('/api/v1/whatsapp', authenticate, whatsappRouter);
+app.use('/api/v1/assets', authenticate, assetsRouter);
 app.use('/api/v1/links', shortenerRouter);
 app.use('/api/v1/qr', qrRouter);
 app.use('/api/v1/biolinks', biolinkRouter);
