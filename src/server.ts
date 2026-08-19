@@ -27,6 +27,8 @@ import subscribersRouter from './modules/subscribers/subscribers.routes';
 import reportsRouter from './modules/reports/reports.routes';
 import knowledgeRouter from './modules/knowledge/knowledge.routes';
 import { startRecurringWorker } from './modules/recurring/recurring.worker';
+import whatsappRouter from './modules/whatsapp/whatsapp.routes';
+import { loadActiveSessions } from './modules/whatsapp/baileys.service';
 
 
 const app = express();
@@ -94,6 +96,7 @@ app.use('/api/v1/marketing', authenticate, marketingRouter);
 app.use('/api/v1/ai', authenticate, aiRouter);
 app.use('/api/v1/billing', authenticate, billingRouter);
 app.use('/api/v1/workspace', authenticate, workspaceRouter);
+app.use('/api/v1/whatsapp', authenticate, whatsappRouter);
 app.use('/api/v1/links', shortenerRouter);
 app.use('/api/v1/qr', qrRouter);
 app.use('/api/v1/biolinks', biolinkRouter);
@@ -122,4 +125,5 @@ httpServer.listen(ENV.PORT, () => {
   console.log(`🔌 Socket.io ready at ws://localhost:${ENV.PORT}`);
   startPublisherWorker(); // Start scheduled auto-posting worker
   startRecurringWorker(); // Start recurring invoices/expenses/tasks worker
+  loadActiveSessions();   // Restore active WhatsApp sessions
 });
