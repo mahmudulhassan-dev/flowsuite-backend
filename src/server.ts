@@ -10,6 +10,7 @@ import { register, login, me, forgotPassword, resetPassword, sendOtp, verifyOtp,
 import { authenticate } from './middleware/auth';
 import { verifyToken } from './utils/auth';
 import assetsRouter from './modules/assets/assets.routes';
+import { prisma } from './lib/prisma';
 
 // Module routes
 import inboxRouter from './modules/inbox/inbox.routes';
@@ -122,6 +123,23 @@ app.use('/api/v1/public/forms', (req, _res, next) => { req.user = undefined as n
 // Public Link Redirection & Bio Landing Rendering
 app.use('/s', publicShortenerRouter);
 app.use('/b', publicBiolinkRouter);
+
+// Public File Share Download Route
+app.get('/api/v1/public/share/:slug', async (req, res) => {
+  try {
+    const asset = await prisma.mediaAsset.findUnique({
+      where: { shareSlug: req.params.slug }
+    });
+    if (!asset) {
+      res.status(404).send('Shared file not found');
+      return;
+    }
+    const filePath = path.join(process.cwd(), 'public', 'uploads', asset.storageKey);
+    res.download(filePath, asset.fileName);
+  } catch (err: any) {
+    res.status(500).send(err.message);
+  }
+});
 
 // SuperAdmin routes (no user auth — uses separate admin token check)
 app.use('/admin', adminRouter);

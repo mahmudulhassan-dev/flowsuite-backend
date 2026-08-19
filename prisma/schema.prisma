@@ -208,6 +208,7 @@ model Workspace {
   description     String?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
+  storageLimitMb  Int          @default(5120)
 
   settings        WorkspaceSettings?
   members         WorkspaceMember[]
@@ -726,6 +727,8 @@ model MediaAsset {
   storageKey      String
   storageEngine   String      @default("S3")
   metadata        Json?
+  starred         Boolean     @default(false)
+  shareSlug       String?     @unique
 
   postMedia       PostMedia[]
   createdAt       DateTime    @default(now())

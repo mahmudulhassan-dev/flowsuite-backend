@@ -28,8 +28,6 @@ const upload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB max per file
 });
 
-const STORAGE_LIMIT_BYTES = 5 * 1024 * 1024 * 1024; // 5 GB default limit
-
 // POST /api/v1/assets/upload
 router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
   try {
@@ -42,20 +40,28 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       return;
     }
 
-    // Calculate current storage
-    const totalUsedResult = await prisma.mediaAsset.aggregate({
-      where: { workspaceId },
-      _sum: { fileSize: true },
-    });
+    // Calculate current storage and retrieve workspace limit
+    const [totalUsedResult, workspace] = await Promise.all([
+      prisma.mediaAsset.aggregate({
+        where: { workspaceId },
+        _sum: { fileSize: true },
+      }),
+      prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { storageLimitMb: true },
+      }),
+    ]);
+    
     const totalUsed = totalUsedResult._sum.fileSize || 0;
+    const limitBytes = (workspace?.storageLimitMb || 5120) * 1024 * 1024; // Default to 5 GB
 
     // Check quota
-    if (totalUsed + file.size > STORAGE_LIMIT_BYTES) {
+    if (totalUsed + file.size > limitBytes) {
       // Clean up uploaded file
       try {
         fs.unlinkSync(file.path);
       } catch {}
-      res.status(400).json({ success: false, error: 'Storage quota exceeded (5 GB limit)' });
+      res.status(400).json({ success: false, error: 'Storage quota exceeded' });
       return;
     }
 
@@ -85,34 +91,51 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { workspaceId } = (req as any).user;
-    const { folderId } = req.query;
+    const { folderId, starredOnly } = req.query;
 
     const targetFolderId = folderId && folderId !== 'root' ? (folderId as string) : null;
 
+    const whereClauseFolders: any = {
+      workspaceId,
+      parentId: targetFolderId,
+    };
+
+    const whereClauseAssets: any = {
+      workspaceId,
+    };
+
+    if (starredOnly === 'true') {
+      whereClauseAssets.starred = true;
+    } else {
+      whereClauseAssets.folderId = targetFolderId;
+    }
+
     // Fetch folders in current directory
     const folders = await prisma.folder.findMany({
-      where: {
-        workspaceId,
-        parentId: targetFolderId,
-      },
+      where: whereClauseFolders,
       orderBy: { createdAt: 'desc' },
     });
 
     // Fetch assets in current directory
     const assets = await prisma.mediaAsset.findMany({
-      where: {
-        workspaceId,
-        folderId: targetFolderId,
-      },
+      where: whereClauseAssets,
       orderBy: { createdAt: 'desc' },
     });
 
-    // Get storage usage stats
-    const totalUsedResult = await prisma.mediaAsset.aggregate({
-      where: { workspaceId },
-      _sum: { fileSize: true },
-    });
+    // Get storage usage stats and dynamic limit
+    const [totalUsedResult, workspace] = await Promise.all([
+      prisma.mediaAsset.aggregate({
+        where: { workspaceId },
+        _sum: { fileSize: true },
+      }),
+      prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { storageLimitMb: true },
+      }),
+    ]);
+    
     const totalUsed = totalUsedResult._sum.fileSize || 0;
+    const limitBytes = (workspace?.storageLimitMb || 5120) * 1024 * 1024;
 
     res.json({
       success: true,
@@ -121,7 +144,7 @@ router.get('/', async (req: Request, res: Response) => {
         assets,
         storage: {
           used: totalUsed,
-          limit: STORAGE_LIMIT_BYTES,
+          limit: limitBytes,
         },
       },
     });
@@ -161,7 +184,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
     const { workspaceId } = (req as any).user;
     const { id } = req.params;
 
-    // 1. Check if deleting a file
+    // Check if deleting a file
     const asset = await prisma.mediaAsset.findFirst({
       where: { id, workspaceId },
     });
@@ -181,7 +204,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // 2. Check if deleting a folder
+    // Check if deleting a folder
     const folder = await prisma.folder.findFirst({
       where: { id, workspaceId },
     });
@@ -244,16 +267,24 @@ router.post('/edit-photo', async (req: Request, res: Response) => {
     const newFilePath = path.join(uploadDir, newFilename);
 
     if (saveAsNew) {
-      // Calculate current storage
-      const totalUsedResult = await prisma.mediaAsset.aggregate({
-        where: { workspaceId },
-        _sum: { fileSize: true },
-      });
+      // Calculate current storage and retrieve workspace limit
+      const [totalUsedResult, workspace] = await Promise.all([
+        prisma.mediaAsset.aggregate({
+          where: { workspaceId },
+          _sum: { fileSize: true },
+        }),
+        prisma.workspace.findUnique({
+          where: { id: workspaceId },
+          select: { storageLimitMb: true },
+        }),
+      ]);
+      
       const totalUsed = totalUsedResult._sum.fileSize || 0;
+      const limitBytes = (workspace?.storageLimitMb || 5120) * 1024 * 1024;
 
       // Check quota
-      if (totalUsed + newSize > STORAGE_LIMIT_BYTES) {
-        res.status(400).json({ success: false, error: 'Storage quota exceeded (5 GB limit)' });
+      if (totalUsed + newSize > limitBytes) {
+        res.status(400).json({ success: false, error: 'Storage quota exceeded' });
         return;
       }
 
@@ -274,7 +305,7 @@ router.post('/edit-photo', async (req: Request, res: Response) => {
 
       res.status(201).json({ success: true, data: newAsset });
     } else {
-      // Overwrite: Delete old file from disk first
+      // Overwrite
       try {
         const oldFilePath = path.join(uploadDir, originalAsset.storageKey);
         if (fs.existsSync(oldFilePath)) {
@@ -296,6 +327,173 @@ router.post('/edit-photo', async (req: Request, res: Response) => {
 
       res.json({ success: true, data: updatedAsset });
     }
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/v1/assets/:id/rename
+router.post('/:id/rename', async (req: Request, res: Response) => {
+  try {
+    const { workspaceId } = (req as any).user;
+    const { id } = req.params;
+    const { name } = req.body;
+
+    if (!name || !name.trim()) {
+      res.status(400).json({ success: false, error: 'Name is required' });
+      return;
+    }
+
+    // Try folder rename
+    const folder = await prisma.folder.findFirst({ where: { id, workspaceId } });
+    if (folder) {
+      const updated = await prisma.folder.update({
+        where: { id },
+        data: { name: name.trim() },
+      });
+      res.json({ success: true, data: updated });
+      return;
+    }
+
+    // Try asset rename
+    const asset = await prisma.mediaAsset.findFirst({ where: { id, workspaceId } });
+    if (asset) {
+      const updated = await prisma.mediaAsset.update({
+        where: { id },
+        data: { fileName: name.trim() },
+      });
+      res.json({ success: true, data: updated });
+      return;
+    }
+
+    res.status(404).json({ success: false, error: 'Item not found' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/v1/assets/:id/toggle-star
+router.post('/:id/toggle-star', async (req: Request, res: Response) => {
+  try {
+    const { workspaceId } = (req as any).user;
+    const { id } = req.params;
+
+    const asset = await prisma.mediaAsset.findFirst({ where: { id, workspaceId } });
+    if (!asset) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
+    const updated = await prisma.mediaAsset.update({
+      where: { id },
+      data: { starred: !asset.starred },
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/v1/assets/:id/move
+router.post('/:id/move', async (req: Request, res: Response) => {
+  try {
+    const { workspaceId } = (req as any).user;
+    const { id } = req.params;
+    const { folderId } = req.body;
+
+    const targetFolderId = folderId === 'root' || !folderId ? null : folderId;
+
+    // Try moving folder
+    const folder = await prisma.folder.findFirst({ where: { id, workspaceId } });
+    if (folder) {
+      const updated = await prisma.folder.update({
+        where: { id },
+        data: { parentId: targetFolderId },
+      });
+      res.json({ success: true, data: updated });
+      return;
+    }
+
+    // Try moving asset
+    const asset = await prisma.mediaAsset.findFirst({ where: { id, workspaceId } });
+    if (asset) {
+      const updated = await prisma.mediaAsset.update({
+        where: { id },
+        data: { folderId: targetFolderId },
+      });
+      res.json({ success: true, data: updated });
+      return;
+    }
+
+    res.status(404).json({ success: false, error: 'Item not found' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/v1/assets/:id/share
+router.post('/:id/share', async (req: Request, res: Response) => {
+  try {
+    const { workspaceId } = (req as any).user;
+    const { id } = req.params;
+
+    const asset = await prisma.mediaAsset.findFirst({ where: { id, workspaceId } });
+    if (!asset) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
+    if (asset.shareSlug) {
+      res.json({ success: true, slug: asset.shareSlug });
+      return;
+    }
+
+    const shareSlug = Math.random().toString(36).substring(2, 12);
+    await prisma.mediaAsset.update({
+      where: { id },
+      data: { shareSlug },
+    });
+
+    res.json({ success: true, slug: shareSlug });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/v1/assets/edit-spreadsheet
+router.post('/edit-spreadsheet', async (req: Request, res: Response) => {
+  try {
+    const { workspaceId } = (req as any).user;
+    const { id, csvData } = req.body;
+
+    if (!id || !Array.isArray(csvData)) {
+      res.status(400).json({ success: false, error: 'File ID and csvData list are required' });
+      return;
+    }
+
+    const asset = await prisma.mediaAsset.findFirst({ where: { id, workspaceId } });
+    if (!asset) {
+      res.status(404).json({ success: false, error: 'File not found' });
+      return;
+    }
+
+    // Convert matrix rows back into CSV text
+    const csvContent = csvData.map((row: string[]) => 
+      row.map(cell => `"${(cell || '').replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+
+    const filePath = path.join(uploadDir, asset.storageKey);
+    fs.writeFileSync(filePath, csvContent, 'utf-8');
+
+    const newSize = fs.statSync(filePath).size;
+
+    const updated = await prisma.mediaAsset.update({
+      where: { id },
+      data: { fileSize: newSize },
+    });
+
+    res.json({ success: true, data: updated });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

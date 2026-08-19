@@ -110,4 +110,38 @@ router.post('/create', async (req: Request, res: Response) => {
   res.status(201).json({ success: true, data: result });
 });
 
+// POST /api/v1/workspace/upgrade-storage
+router.post('/upgrade-storage', async (req: Request, res: Response) => {
+  try {
+    const { workspaceId } = (req as any).user;
+    const { sizeGb } = req.body;
+
+    if (!sizeGb || typeof sizeGb !== 'number') {
+      res.status(400).json({ success: false, error: 'Valid storage size in GB is required' });
+      return;
+    }
+
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+    });
+
+    if (!workspace) {
+      res.status(404).json({ success: false, error: 'Workspace not found' });
+      return;
+    }
+
+    const incrementMb = sizeGb * 1024;
+    const newLimit = (workspace.storageLimitMb || 5120) + incrementMb;
+
+    const updated = await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { storageLimitMb: newLimit },
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;
