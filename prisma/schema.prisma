@@ -227,6 +227,7 @@ model Workspace {
   biolinks        BiolinkPage[]
   qrCodes         QrCode[]
   crmCustomers    CrmCustomer[]
+  crmCustomerGroups CrmCustomerGroup[]
   crmInvoices     CrmInvoice[]
   crmEstimates    CrmEstimate[]
   crmProposals    CrmProposal[]
@@ -871,6 +872,7 @@ model CrmCustomer {
   workspaceId String
   workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   companyName String
+  vatNumber   String?
   address     String?
   city        String?
   state       String?
@@ -879,10 +881,20 @@ model CrmCustomer {
   phone       String?
   website     String?
   currency    String               @default("USD")
+  language    String?              @default("English")
+  active      Boolean              @default(true)
   createdAt   DateTime             @default(now())
   updatedAt   DateTime             @updatedAt
 
+  // Shipping Address
+  shippingStreet  String?
+  shippingCity    String?
+  shippingState   String?
+  shippingZipCode String?
+  shippingCountry String?
+
   contacts          CrmCustomerContact[]
+  groups            CrmCustomerGroupRelation[]
   invoices          CrmInvoice[]
   estimates         CrmEstimate[]
   proposals         CrmProposal[]
@@ -908,6 +920,27 @@ model CrmCustomerContact {
   updatedAt   DateTime    @updatedAt
 
   @@index([customerId])
+}
+
+model CrmCustomerGroup {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  createdAt   DateTime @default(now())
+
+  customers   CrmCustomerGroupRelation[]
+
+  @@index([workspaceId])
+}
+
+model CrmCustomerGroupRelation {
+  customerId String
+  customer   CrmCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  groupId    String
+  group      CrmCustomerGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, groupId])
 }
 
 model CrmInvoice {
