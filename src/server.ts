@@ -5,7 +5,7 @@ import morgan from 'morgan';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { ENV } from './config/env';
-import { register, login, me, forgotPassword, resetPassword } from './modules/auth/auth.controller';
+import { register, login, me, forgotPassword, resetPassword, sendOtp, verifyOtp, socialLogin } from './modules/auth/auth.controller';
 import { authenticate } from './middleware/auth';
 import { verifyToken } from './utils/auth';
 
@@ -92,6 +92,9 @@ app.post('/api/v1/auth/login', login);
 app.get('/api/v1/auth/me', authenticate, me);
 app.post('/api/v1/auth/forgot-password', forgotPassword);
 app.post('/api/v1/auth/reset-password', resetPassword);
+app.post('/api/v1/auth/phone/send-otp', sendOtp);
+app.post('/api/v1/auth/phone/verify-otp', verifyOtp);
+app.post('/api/v1/auth/social-login', socialLogin);
 
 // Feature module routes
 app.use('/api/v1/inbox', authenticate, inboxRouter);

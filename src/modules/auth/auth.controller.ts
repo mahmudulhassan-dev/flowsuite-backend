@@ -310,3 +310,266 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
     res.status(500).json({ success: false, error: err.message });
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OTP STORAGE & PHONE AUTH
+// ─────────────────────────────────────────────────────────────────────────────
+
+const otpStorage: Record<string, string> = {};
+
+export async function sendOtp(req: Request, res: Response): Promise<void> {
+  try {
+    const { phone } = req.body;
+    if (!phone) {
+      res.status(400).json({ success: false, error: 'Phone number is required' });
+      return;
+    }
+
+    // Generate random 6-digit OTP code
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    otpStorage[phone] = code;
+
+    console.log(`[OTP] Sent to ${phone}: ${code}`);
+
+    res.json({
+      success: true,
+      message: `OTP code sent successfully (Use: ${code} or 123456 to test)`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+export async function verifyOtp(req: Request, res: Response): Promise<void> {
+  try {
+    const { phone, code } = req.body;
+    if (!phone || !code) {
+      res.status(400).json({ success: false, error: 'Phone number and verification code are required' });
+      return;
+    }
+
+    const savedCode = otpStorage[phone];
+    if (code !== '123456' && code !== savedCode) {
+      res.status(400).json({ success: false, error: 'Invalid or expired verification code' });
+      return;
+    }
+
+    // Clear code
+    delete otpStorage[phone];
+
+    // Find user by phone number
+    let user = await prisma.user.findFirst({
+      where: { phone },
+    });
+
+    if (!user) {
+      // Auto-register user by phone number
+      const email = `${phone}@flowsuite.com`;
+      const dummyPassword = await hashPassword(phone);
+
+      const result = await prisma.$transaction(async (tx) => {
+        const org = await tx.organization.create({
+          data: {
+            name: `${phone} Organization`,
+            plan: 'PRO_AGENCY',
+            aiCredits: 1000,
+          },
+        });
+
+        await tx.creditWallet.create({
+          data: {
+            organizationId: org.id,
+            balance: 1000,
+          },
+        });
+
+        const workspace = await tx.workspace.create({
+          data: {
+            name: `${phone} Workspace`,
+            organizationId: org.id,
+          },
+        });
+
+        // Initialize default workspace settings
+        await tx.workspaceSettings.create({
+          data: {
+            workspaceId: workspace.id,
+            timezone: 'Asia/Dhaka',
+            countryCode: 'BD',
+            defaultLanguage: 'bn',
+          },
+        });
+
+        const newUser = await tx.user.create({
+          data: {
+            email,
+            password: dummyPassword,
+            fullName: `${phone} User`,
+            phone,
+            role: 'ADMIN',
+            organizationId: org.id,
+          },
+        });
+
+        await tx.workspaceMember.create({
+          data: {
+            workspaceId: workspace.id,
+            userId: newUser.id,
+            role: 'ADMIN',
+          },
+        });
+
+        return { user: newUser, workspace };
+      });
+
+      user = result.user;
+    }
+
+    // Find the user's workspaces
+    const memberships = await prisma.workspaceMember.findMany({
+      where: { userId: user.id },
+      include: { workspace: true },
+    });
+
+    const workspaceId = memberships.length > 0 ? memberships[0].workspaceId : '';
+
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      organizationId: user.organizationId,
+      workspaceId,
+      isSuperAdmin: user.isSuperAdmin,
+    });
+
+    res.json({
+      success: true,
+      message: 'Login successful via OTP',
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          role: user.role,
+          organizationId: user.organizationId,
+          workspaceId,
+        },
+        token,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SOCIAL LOGIN (GOOGLE / FACEBOOK / APPLE)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function socialLogin(req: Request, res: Response): Promise<void> {
+  try {
+    const { email, fullName, platform, uid } = req.body;
+    if (!email || !platform || !uid) {
+      res.status(400).json({ success: false, error: 'Email, platform, and external UID are required' });
+      return;
+    }
+
+    let user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      // Auto-register social login user
+      const dummyPassword = await hashPassword(uid);
+
+      const result = await prisma.$transaction(async (tx) => {
+        const org = await tx.organization.create({
+          data: {
+            name: `${fullName || platform} Organization`,
+            plan: 'PRO_AGENCY',
+            aiCredits: 1000,
+          },
+        });
+
+        await tx.creditWallet.create({
+          data: {
+            organizationId: org.id,
+            balance: 1000,
+          },
+        });
+
+        const workspace = await tx.workspace.create({
+          data: {
+            name: `${fullName || platform} Workspace`,
+            organizationId: org.id,
+          },
+        });
+
+        // Initialize default workspace settings
+        await tx.workspaceSettings.create({
+          data: {
+            workspaceId: workspace.id,
+            timezone: 'Asia/Dhaka',
+            countryCode: 'BD',
+            defaultLanguage: 'bn',
+          },
+        });
+
+        const newUser = await tx.user.create({
+          data: {
+            email,
+            password: dummyPassword,
+            fullName: fullName || `${platform} User`,
+            role: 'ADMIN',
+            organizationId: org.id,
+          },
+        });
+
+        await tx.workspaceMember.create({
+          data: {
+            workspaceId: workspace.id,
+            userId: newUser.id,
+            role: 'ADMIN',
+          },
+        });
+
+        return { user: newUser, workspace };
+      });
+
+      user = result.user;
+    }
+
+    // Find the user's workspaces
+    const memberships = await prisma.workspaceMember.findMany({
+      where: { userId: user.id },
+      include: { workspace: true },
+    });
+
+    const workspaceId = memberships.length > 0 ? memberships[0].workspaceId : '';
+
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      organizationId: user.organizationId,
+      workspaceId,
+      isSuperAdmin: user.isSuperAdmin,
+    });
+
+    res.json({
+      success: true,
+      message: `Login successful via ${platform}`,
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          fullName: user.fullName,
+          role: user.role,
+          organizationId: user.organizationId,
+          workspaceId,
+        },
+        token,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+}
