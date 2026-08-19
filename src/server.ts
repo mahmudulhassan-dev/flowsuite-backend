@@ -70,7 +70,7 @@ io.on('connection', (socket) => {
   });
 });
 
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: false }));
 app.use(cors({
   origin: (origin, callback) => {
     callback(null, true);
