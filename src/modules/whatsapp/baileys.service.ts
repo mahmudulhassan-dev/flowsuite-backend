@@ -18,7 +18,7 @@ interface SessionState {
   status: 'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'QR';
 }
 
-const activeSessions: Record<string, SessionState> = {};
+export const activeSessions: Record<string, SessionState> = {};
 
 export function getSessionStatus(workspaceId: string) {
   const session = activeSessions[workspaceId];

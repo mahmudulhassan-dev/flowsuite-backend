@@ -31,7 +31,7 @@ router.get('/threads', async (req: Request, res: Response) => {
   const { channel, status, search } = req.query;
 
   const where: Record<string, any> = { workspaceId };
-  if (channel) where['channel'] = mapPlatform(String(channel));
+  if (channel) where['platform'] = mapPlatform(String(channel));
   if (status) where['status'] = mapThreadStatus(String(status));
   if (search) {
     where['OR'] = [
@@ -94,6 +94,19 @@ router.post('/threads/:threadId/messages', async (req: Request, res: Response) =
     where: { id: thread.id },
     data: { lastMessageAt: new Date() },
   });
+
+  // Forward WhatsApp reply to customer phone
+  if (thread.platform === SocialPlatform.WHATSAPP && thread.externalSenderId) {
+    try {
+      const { activeSessions } = require('../whatsapp/baileys.service');
+      const session = activeSessions[workspaceId];
+      if (session && session.socket && session.status === 'CONNECTED') {
+        await session.socket.sendMessage(thread.externalSenderId, { text: content });
+      }
+    } catch (e) {
+      console.error('Failed to forward agent response via Baileys WhatsApp socket:', e);
+    }
+  }
 
   // Emit real-time event
   io.to(`workspace:${workspaceId}`).emit('inbox:message', { threadId: thread.id, message });
