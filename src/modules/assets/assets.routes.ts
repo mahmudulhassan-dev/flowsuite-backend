@@ -3,8 +3,20 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { prisma } from '../../lib/prisma';
+import { ENV } from '../../config/env';
 
 const router = Router();
+
+// Files are stored on this server's disk, but the frontend runs on a different domain,
+// so every file link must be an absolute URL pointing back at this backend.
+function publicUrl(storageKey: string): string {
+  const base = ENV.BACKEND_DOMAIN.replace(/\/+$/, '');
+  return `${base}/uploads/${storageKey}`;
+}
+
+function serializeAsset<T extends { storageKey: string }>(asset: T): T & { fileUrl: string } {
+  return { ...asset, fileUrl: publicUrl(asset.storageKey) };
+}
 
 // Configure Multer storage
 const uploadDir = path.join(process.cwd(), 'public', 'uploads');
@@ -29,11 +41,13 @@ const upload = multer({
 });
 
 // POST /api/v1/assets/upload
-router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/upload', upload.any(), async (req: Request, res: Response) => {
   try {
     const { workspaceId } = (req as any).user;
     const { folderId } = req.body;
-    const file = req.file;
+    // Accept the file regardless of the form field name the frontend used.
+    const files = (req.files as Express.Multer.File[] | undefined) || [];
+    const file = req.file || files[0];
 
     if (!file) {
       res.status(400).json({ success: false, error: 'No file uploaded' });
@@ -82,7 +96,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       },
     });
 
-    res.status(201).json({ success: true, data: asset });
+    res.status(201).json({ success: true, data: serializeAsset(asset) });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -188,7 +202,7 @@ router.get('/', async (req: Request, res: Response) => {
       success: true,
       data: {
         folders,
-        assets,
+        assets: assets.map(serializeAsset),
         storage: {
           used: totalUsed,
           limit: limitBytes,
@@ -353,7 +367,7 @@ router.post('/edit-photo', async (req: Request, res: Response) => {
         },
       });
 
-      res.status(201).json({ success: true, data: newAsset });
+      res.status(201).json({ success: true, data: serializeAsset(newAsset) });
     } else {
       // Overwrite
       try {
@@ -375,7 +389,7 @@ router.post('/edit-photo', async (req: Request, res: Response) => {
         },
       });
 
-      res.json({ success: true, data: updatedAsset });
+      res.json({ success: true, data: serializeAsset(updatedAsset) });
     }
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -412,7 +426,7 @@ router.post('/:id/rename', async (req: Request, res: Response) => {
         where: { id },
         data: { fileName: name.trim() },
       });
-      res.json({ success: true, data: updated });
+      res.json({ success: true, data: serializeAsset(updated) });
       return;
     }
 
@@ -439,7 +453,7 @@ router.post('/:id/toggle-star', async (req: Request, res: Response) => {
       data: { starred: !asset.starred },
     });
 
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: serializeAsset(updated) });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -472,7 +486,7 @@ router.post('/:id/move', async (req: Request, res: Response) => {
         where: { id },
         data: { folderId: targetFolderId },
       });
-      res.json({ success: true, data: updated });
+      res.json({ success: true, data: serializeAsset(updated) });
       return;
     }
 
@@ -543,7 +557,7 @@ router.post('/edit-spreadsheet', async (req: Request, res: Response) => {
       data: { fileSize: newSize },
     });
 
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: serializeAsset(updated) });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -633,7 +647,7 @@ router.post('/edit-video', async (req: Request, res: Response) => {
             uploadedById: (req as any).user?.id || null,
           },
         });
-        res.status(201).json({ success: true, data: newAsset });
+        res.status(201).json({ success: true, data: serializeAsset(newAsset) });
       } else {
         // Overwrite
         try {
@@ -651,7 +665,7 @@ router.post('/edit-video', async (req: Request, res: Response) => {
             fileName: `edited_${baseName}${extension}`,
           },
         });
-        res.json({ success: true, data: updatedAsset });
+        res.json({ success: true, data: serializeAsset(updatedAsset) });
       }
     });
 
