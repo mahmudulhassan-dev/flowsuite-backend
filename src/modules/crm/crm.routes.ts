@@ -116,8 +116,18 @@ router.post('/customers', async (req: Request, res: Response) => {
     } = req.body;
 
     if (!companyName || !companyName.trim()) {
-      res.status(450).json({ success: false, error: 'Company Name is required' });
+      res.status(400).json({ success: false, error: 'Company Name is required' });
       return;
+    }
+
+    // Only keep group ids that actually belong to this workspace
+    let validGroupIds: string[] = [];
+    if (Array.isArray(groupIds) && groupIds.length > 0) {
+      const existingGroups = await prisma.crmCustomerGroup.findMany({
+        where: { workspaceId, id: { in: groupIds } },
+        select: { id: true },
+      });
+      validGroupIds = existingGroups.map((g) => g.id);
     }
 
     // Create Customer record and handle relation inserts
@@ -141,7 +151,7 @@ router.post('/customers', async (req: Request, res: Response) => {
         shippingZipCode: shippingZipCode || null,
         shippingCountry: shippingCountry || null,
         groups: {
-          create: groupIds.map((gId: string) => ({
+          create: validGroupIds.map((gId) => ({
             groupId: gId,
           })),
         },
@@ -197,7 +207,7 @@ router.put('/customers/:id', async (req: Request, res: Response) => {
     });
 
     if (!existing) {
-      res.status(444).json({ success: false, error: 'Customer not found' });
+      res.status(404).json({ success: false, error: 'Customer not found' });
       return;
     }
 
@@ -224,18 +234,24 @@ router.put('/customers/:id', async (req: Request, res: Response) => {
       },
     });
 
-    // Update group relations
-    if (groupIds) {
+    // Update group relations (only groups that belong to this workspace)
+    if (Array.isArray(groupIds)) {
       await prisma.crmCustomerGroupRelation.deleteMany({
         where: { customerId: id },
       });
       if (groupIds.length > 0) {
-        await prisma.crmCustomerGroupRelation.createMany({
-          data: groupIds.map((gId: string) => ({
-            customerId: id,
-            groupId: gId,
-          })),
+        const existingGroups = await prisma.crmCustomerGroup.findMany({
+          where: { workspaceId, id: { in: groupIds } },
+          select: { id: true },
         });
+        if (existingGroups.length > 0) {
+          await prisma.crmCustomerGroupRelation.createMany({
+            data: existingGroups.map((g) => ({
+              customerId: id,
+              groupId: g.id,
+            })),
+          });
+        }
       }
     }
 

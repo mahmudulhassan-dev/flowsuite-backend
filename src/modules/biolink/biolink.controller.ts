@@ -1,20 +1,18 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../lib/prisma';
 
 // Create a new Biolink landing page
 export async function createBiolink(req: Request, res: Response) {
   try {
     const { urlSlug, title, description, logoUrl, themeSettings } = req.body;
-    const workspaceId = (req as any).workspaceId || req.headers['x-workspace-id'] as string;
-
-    if (!urlSlug) {
-      return res.status(400).json({ success: false, error: 'URL slug is required' });
-    }
+    const workspaceId = req.user?.workspaceId;
 
     if (!workspaceId) {
-      return res.status(400).json({ success: false, error: 'Workspace ID is required' });
+      return res.status(403).json({ success: false, error: 'Workspace context required' });
+    }
+
+    if (!urlSlug || !urlSlug.trim()) {
+      return res.status(400).json({ success: false, error: 'URL slug is required' });
     }
 
     // Check if slug is taken
@@ -47,10 +45,10 @@ export async function createBiolink(req: Request, res: Response) {
 // List all Biolink pages in the workspace
 export async function listBiolinks(req: Request, res: Response) {
   try {
-    const workspaceId = (req as any).workspaceId || req.headers['x-workspace-id'] as string;
+    const workspaceId = req.user?.workspaceId;
 
     if (!workspaceId) {
-      return res.status(400).json({ success: false, error: 'Workspace ID is required' });
+      return res.status(403).json({ success: false, error: 'Workspace context required' });
     }
 
     const biolinks = await prisma.biolinkPage.findMany({
@@ -74,7 +72,7 @@ export async function updateBiolink(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const { title, description, logoUrl, themeSettings, isActive } = req.body;
-    const workspaceId = (req as any).workspaceId || req.headers['x-workspace-id'] as string;
+    const workspaceId = req.user?.workspaceId;
 
     const existing = await prisma.biolinkPage.findFirst({
       where: { id, workspaceId }
@@ -105,7 +103,7 @@ export async function updateBiolink(req: Request, res: Response) {
 export async function deleteBiolink(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = (req as any).workspaceId || req.headers['x-workspace-id'] as string;
+    const workspaceId = req.user?.workspaceId;
 
     const existing = await prisma.biolinkPage.findFirst({
       where: { id, workspaceId }
@@ -130,7 +128,7 @@ export async function getBiolinkBySlug(req: Request, res: Response) {
   try {
     const { slug } = req.params;
 
-    const biolink = await prisma.biolinkPage.findUnique({
+    const biolink = await prisma.biolinkPage.findFirst({
       where: { urlSlug: slug.trim().toLowerCase(), isActive: true },
       include: {
         blocks: {
@@ -159,7 +157,7 @@ export async function getBiolinkBySlug(req: Request, res: Response) {
 export async function createBiolinkBlock(req: Request, res: Response) {
   try {
     const { biolinkPageId, type, config, sortOrder } = req.body;
-    const workspaceId = (req as any).workspaceId || req.headers['x-workspace-id'] as string;
+    const workspaceId = req.user?.workspaceId;
 
     const page = await prisma.biolinkPage.findFirst({
       where: { id: biolinkPageId, workspaceId }
@@ -189,7 +187,7 @@ export async function updateBiolinkBlock(req: Request, res: Response) {
   try {
     const { id } = req.params;
     const { config, sortOrder } = req.body;
-    const workspaceId = (req as any).workspaceId || req.headers['x-workspace-id'] as string;
+    const workspaceId = req.user?.workspaceId;
 
     const block = await prisma.biolinkBlock.findFirst({
       where: {
@@ -222,7 +220,7 @@ export async function updateBiolinkBlock(req: Request, res: Response) {
 export async function deleteBiolinkBlock(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const workspaceId = (req as any).workspaceId || req.headers['x-workspace-id'] as string;
+    const workspaceId = req.user?.workspaceId;
 
     const block = await prisma.biolinkBlock.findFirst({
       where: {
