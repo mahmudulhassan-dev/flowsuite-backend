@@ -18,7 +18,7 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '_' + Math.round(Math.random() * 1e9);
-    const sanitizedName = file.originalname.replace(/\s+/g, '_');
+    const sanitizedName = file.originalname.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9._-]/g, '');
     cb(null, `${uniqueSuffix}_${sanitizedName}`);
   },
 });
