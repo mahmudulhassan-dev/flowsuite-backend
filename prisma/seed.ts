@@ -27,6 +27,15 @@ async function main() {
       id: 'ws_main_001',
       name: 'FlowSuite Main Workspace',
       organizationId: org.id,
+    },
+  });
+
+  // 2.5 Create/Upsert WorkspaceSettings
+  await prisma.workspaceSettings.upsert({
+    where: { workspaceId: workspace.id },
+    update: {},
+    create: {
+      workspaceId: workspace.id,
       timezone: 'Asia/Dhaka',
       countryCode: 'BD',
       defaultLanguage: 'bn',
