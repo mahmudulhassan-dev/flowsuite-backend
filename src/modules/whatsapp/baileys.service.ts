@@ -20,6 +20,91 @@ interface SessionState {
 
 export const activeSessions: Record<string, SessionState> = {};
 
+interface AutoReplyRule {
+  keywords: string[];
+  response: string;
+  matchType?: 'contains' | 'exact' | 'starts_with';
+}
+
+// Returns the response of the first keyword rule that matches the incoming text.
+function matchKeywordRule(text: string, rules: AutoReplyRule[]): string {
+  const lower = text.toLowerCase().trim();
+  for (const rule of rules) {
+    if (!rule || !rule.response || !Array.isArray(rule.keywords)) continue;
+    const matchType = rule.matchType || 'contains';
+    for (const kwRaw of rule.keywords) {
+      const kw = String(kwRaw).toLowerCase().trim();
+      if (!kw) continue;
+      if (matchType === 'exact' && lower === kw) return rule.response;
+      if (matchType === 'starts_with' && lower.startsWith(kw)) return rule.response;
+      if (matchType === 'contains' && lower.includes(kw)) return rule.response;
+    }
+  }
+  return '';
+}
+
+// Generates an AI reply grounded in the workspace's public knowledge base.
+async function generateAiReply(workspaceId: string, bodyText: string): Promise<string> {
+  const apiKey = process.env.NARA_ROUTER_API_KEY;
+  if (!apiKey) return '';
+  const model = process.env.NARA_ROUTER_MODEL || 'deepseek-v4-flash-free';
+
+  const articles = await prisma.kbArticle.findMany({
+    where: { workspaceId, isPublic: true },
+    select: { title: true, content: true },
+    take: 20,
+  });
+  const contextStr = articles.map((a) => `Title: ${a.title}\nContent: ${a.content}`).join('\n\n');
+
+  try {
+    const systemPrompt = `You are a helpful AI assistant. Use the following context to answer the user's questions:
+
+=== CONTEXT ===
+${contextStr}
+================
+
+Answer politely, concisely (under 3 sentences), and professionally. If context does not help, answer politely using general knowledge.`;
+
+    const response = await fetch('https://router.bynara.id/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: bodyText },
+        ],
+        temperature: 0.7,
+      }),
+    });
+
+    const resJson = (await response.json()) as any;
+    return resJson?.choices?.[0]?.message?.content || '';
+  } catch (err) {
+    console.error('NaraRouter AI completion failed:', err);
+    return '';
+  }
+}
+
+async function sendBotMessage(
+  sessionKey: string,
+  workspaceId: string,
+  threadId: string,
+  toJid: string,
+  text: string
+): Promise<void> {
+  const socketObj = activeSessions[sessionKey]?.socket;
+  if (!socketObj) return;
+  await socketObj.sendMessage(toJid, { text });
+  const botMessage = await prisma.inboxMessage.create({
+    data: { workspaceId, threadId, senderType: SenderType.AI_BOT, body: text },
+  });
+  io.to(`workspace:${workspaceId}`).emit('inbox:message', { threadId, message: botMessage });
+}
+
 export function getSessionStatus(workspaceId: string, sessionId: string) {
   const sessionKey = `${workspaceId}:${sessionId}`;
   const session = activeSessions[sessionKey];
@@ -263,7 +348,9 @@ export async function connectToWhatsApp(workspaceId: string, sessionId: string) 
             },
           });
 
+          let isNewThread = false;
           if (!thread) {
+            isNewThread = true;
             thread = await prisma.inboxThread.create({
               data: {
                 workspaceId,
@@ -299,79 +386,47 @@ export async function connectToWhatsApp(workspaceId: string, sessionId: string) 
             message,
           });
 
-          // Auto-responder AI checks
+          // Automation: welcome message + keyword rules + AI reply + away message
           if (socialAccount && socialAccount.sessionData) {
             const sessionMeta = socialAccount.sessionData as any;
-            if (sessionMeta.autoReplyActive || sessionMeta.aiReplyActive) {
+            const rules: AutoReplyRule[] = Array.isArray(sessionMeta.autoReplyRules)
+              ? sessionMeta.autoReplyRules
+              : [];
+            const threadId = thread.id;
+
+            // Send a one-time welcome message the first time a contact writes in.
+            if (isNewThread && sessionMeta.welcomeMessage) {
+              await sendBotMessage(sessionKey, workspaceId, threadId, fromJid, sessionMeta.welcomeMessage);
+            }
+
+            const hasAutomation =
+              sessionMeta.autoReplyActive || sessionMeta.aiReplyActive || rules.length > 0;
+
+            if (hasAutomation) {
               setTimeout(async () => {
-                let replyText = "";
+                try {
+                  // 1) A matching keyword rule always wins.
+                  let replyText = matchKeywordRule(bodyText, rules);
 
-                if (sessionMeta.aiReplyActive) {
-                  // Fetch crawled knowledgebase memory
-                  const articles = await prisma.kbArticle.findMany({
-                    where: { workspaceId, isPublic: true },
-                    select: { title: true, content: true }
-                  });
-
-                  const contextStr = articles.map(a => `Title: ${a.title}\nContent: ${a.content}`).join("\n\n");
-
-                  try {
-                    const systemPrompt = `You are a helpful AI assistant. Use the following context to answer the user's questions:
-
-=== CONTEXT ===
-${contextStr}
-================
-
-Answer politely, concisely (under 3 sentences), and professionally. If context does not help, answer politely using general knowledge.`;
-
-                    const response = await fetch('https://router.bynara.id/v1/chat/completions', {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer sk-nry--4y04F-Kcj0sns6ZAym8ioYjDT3-TGO60fDhSgBF3GI`
-                      },
-                      body: JSON.stringify({
-                        model: 'deepseek-v4-flash-free',
-                        messages: [
-                          { role: 'system', content: systemPrompt },
-                          { role: 'user', content: bodyText }
-                        ],
-                        temperature: 0.7
-                      })
-                    });
-
-                    const resJson = await response.json() as any;
-                    replyText = resJson?.choices?.[0]?.message?.content || "";
-                  } catch (err) {
-                    console.error('NaraRouter AI completion failed:', err);
+                  // 2) Otherwise try an AI answer from the knowledge base.
+                  if (!replyText && sessionMeta.aiReplyActive) {
+                    replyText = await generateAiReply(workspaceId, bodyText);
                   }
-                }
 
-                if (!replyText && sessionMeta.autoReplyActive) {
-                  replyText = sessionMeta.awayMessage || "Hello! We are currently offline. Our team will contact you shortly.";
-                }
-
-                if (replyText) {
-                  const socketObj = activeSessions[sessionKey]?.socket;
-                  if (socketObj) {
-                    await socketObj.sendMessage(fromJid, { text: replyText });
-
-                    const botMessage = await prisma.inboxMessage.create({
-                      data: {
-                        workspaceId,
-                        threadId: thread!.id,
-                        senderType: SenderType.AI_BOT,
-                        body: replyText
-                      }
-                    });
-
-                    io.to(`workspace:${workspaceId}`).emit('inbox:message', {
-                      threadId: thread!.id,
-                      message: botMessage
-                    });
+                  // 3) Otherwise fall back to the away message.
+                  if (!replyText && sessionMeta.autoReplyActive) {
+                    replyText =
+                      sessionMeta.awayMessage ||
+                      'Hello! We are currently offline. Our team will contact you shortly.';
                   }
+
+                  if (replyText) {
+                    await sendBotMessage(sessionKey, workspaceId, threadId, fromJid, replyText);
+                  }
+                } catch (err) {
+                  console.error('Auto-reply processing failed:', err);
                 }
-              }, 2500);
+              }, 1500);
             }
           }
 
