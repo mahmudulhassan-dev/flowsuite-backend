@@ -144,4 +144,31 @@ router.post('/upgrade-storage', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/v1/workspace/set-limit
+router.post('/set-limit', async (req: Request, res: Response) => {
+  try {
+    const { workspaceId, role } = (req as any).user;
+    const { storageLimitMb } = req.body;
+
+    if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
+      res.status(403).json({ success: false, error: 'Only workspace admins can adjust storage limits' });
+      return;
+    }
+
+    if (!storageLimitMb || typeof storageLimitMb !== 'number') {
+      res.status(400).json({ success: false, error: 'Valid storage size in MB is required' });
+      return;
+    }
+
+    const updated = await prisma.workspace.update({
+      where: { id: workspaceId },
+      data: { storageLimitMb },
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;

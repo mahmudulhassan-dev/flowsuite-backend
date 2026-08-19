@@ -291,6 +291,8 @@ model User {
   supportTickets   SupportTicket[] @relation("UserTickets")
   assignedTickets  SupportTicket[] @relation("AssignedTickets")
   affiliate        Affiliate?
+  uploadedAssets   MediaAsset[]    @relation("AssetUploadedBy")
+  createdFolders   Folder[]        @relation("FolderCreatedBy")
 
   @@index([organizationId])
 }
@@ -717,6 +719,8 @@ model MediaAsset {
   workspace       Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   folderId        String?
   folder          Folder?     @relation(fields: [folderId], references: [id])
+  uploadedById    String?
+  uploadedBy      User?       @relation("AssetUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
 
   fileName        String
   fileUrl         String
@@ -735,6 +739,7 @@ model MediaAsset {
   updatedAt       DateTime    @updatedAt
 
   @@index([workspaceId])
+  @@index([uploadedById])
 }
 
 model Folder {
@@ -745,8 +750,14 @@ model Folder {
   parent          Folder?      @relation("FolderHierarchy", fields: [parentId], references: [id])
   subFolders      Folder[]     @relation("FolderHierarchy")
   mediaAssets     MediaAsset[]
+  createdById     String?
+  createdBy       User?        @relation("FolderCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   createdAt       DateTime     @default(now())
+
+  @@index([workspaceId])
+  @@index([createdById])
 }
+
 
 // -----------------------------------------------------------------------------
 // 8. SYSTEM & SUPPORT

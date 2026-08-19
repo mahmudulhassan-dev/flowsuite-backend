@@ -78,6 +78,7 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
         fileSize: file.size,
         storageKey: file.filename,
         storageEngine: 'LOCAL',
+        uploadedById: (req as any).user?.id || null,
       },
     });
 
@@ -90,10 +91,11 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
 // GET /api/v1/assets
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { workspaceId } = (req as any).user;
+    const { workspaceId, role: userRole, id: userId } = (req as any).user;
     const { folderId, starredOnly } = req.query;
 
     const targetFolderId = folderId && folderId !== 'root' ? (folderId as string) : null;
+    const isPrivileged = ['ADMIN', 'SUPER_ADMIN', 'MANAGER'].includes(userRole);
 
     const whereClauseFolders: any = {
       workspaceId,
@@ -108,6 +110,18 @@ router.get('/', async (req: Request, res: Response) => {
       whereClauseAssets.starred = true;
     } else {
       whereClauseAssets.folderId = targetFolderId;
+    }
+
+    // Role-based visibility logic
+    if (!isPrivileged && userId) {
+      whereClauseFolders.OR = [
+        { createdById: userId },
+        { createdById: null } // Shared/system folders
+      ];
+      whereClauseAssets.OR = [
+        { uploadedById: userId },
+        { uploadedById: null } // Shared/system files
+      ];
     }
 
     // Fetch folders in current directory
@@ -137,6 +151,39 @@ router.get('/', async (req: Request, res: Response) => {
     const totalUsed = totalUsedResult._sum.fileSize || 0;
     const limitBytes = (workspace?.storageLimitMb || 5120) * 1024 * 1024;
 
+    // Fetch user-by-user storage usage for workspace managers/admins
+    let userStorageUsages: any[] = [];
+    if (isPrivileged) {
+      try {
+        const usages = await prisma.mediaAsset.groupBy({
+          by: ['uploadedById'],
+          where: { workspaceId },
+          _sum: { fileSize: true },
+        });
+        
+        const users = await prisma.user.findMany({
+          where: {
+            workspaceMembers: {
+              some: { workspaceId }
+            }
+          },
+          select: { id: true, fullName: true, email: true }
+        });
+
+        userStorageUsages = users.map(u => {
+          const usage = usages.find(us => us.uploadedById === u.id);
+          return {
+            id: u.id,
+            fullName: u.fullName,
+            email: u.email,
+            used: usage?._sum.fileSize || 0,
+          };
+        });
+      } catch (err) {
+        console.error('Failed to fetch individual usages:', err);
+      }
+    }
+
     res.json({
       success: true,
       data: {
@@ -145,6 +192,7 @@ router.get('/', async (req: Request, res: Response) => {
         storage: {
           used: totalUsed,
           limit: limitBytes,
+          users: userStorageUsages,
         },
       },
     });
@@ -169,6 +217,7 @@ router.post('/folders', async (req: Request, res: Response) => {
         workspaceId,
         name: name.trim(),
         parentId: parentId && parentId !== 'root' ? parentId : null,
+        createdById: (req as any).user?.id || null,
       },
     });
 
@@ -300,6 +349,7 @@ router.post('/edit-photo', async (req: Request, res: Response) => {
           fileSize: newSize,
           storageKey: newFilename,
           storageEngine: 'LOCAL',
+          uploadedById: (req as any).user?.id || null,
         },
       });
 
@@ -494,6 +544,117 @@ router.post('/edit-spreadsheet', async (req: Request, res: Response) => {
     });
 
     res.json({ success: true, data: updated });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/v1/assets/edit-video
+router.post('/edit-video', async (req: Request, res: Response) => {
+  try {
+    const { workspaceId } = (req as any).user;
+    const { id, startTime, endTime, filter, saveAsNew } = req.body;
+
+    if (!id) {
+      res.status(400).json({ success: false, error: 'File ID is required' });
+      return;
+    }
+
+    const originalAsset = await prisma.mediaAsset.findFirst({
+      where: { id, workspaceId },
+    });
+
+    if (!originalAsset || originalAsset.fileType !== 'video') {
+      res.status(404).json({ success: false, error: 'Original video not found' });
+      return;
+    }
+
+    const inputPath = path.join(uploadDir, originalAsset.storageKey);
+    const baseName = originalAsset.fileName.substring(0, originalAsset.fileName.lastIndexOf('.')) || originalAsset.fileName;
+    const extension = originalAsset.fileName.substring(originalAsset.fileName.lastIndexOf('.')) || '.mp4';
+    const newFilename = `${Date.now()}_edited_${baseName.replace(/\s+/g, '_')}${extension}`;
+    const outputPath = path.join(uploadDir, newFilename);
+
+    // Build FFmpeg command options
+    const args: string[] = [];
+
+    if (startTime !== undefined && startTime !== '') {
+      args.push(`-ss ${startTime}`);
+    }
+    if (endTime !== undefined && endTime !== '') {
+      args.push(`-to ${endTime}`);
+    }
+
+    args.push(`-i "${inputPath}"`);
+
+    // Add filters
+    if (filter === 'grayscale') {
+      args.push('-vf format=gray');
+    } else if (filter === 'sepia') {
+      args.push('-vf "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131"');
+    } else if (filter === 'invert') {
+      args.push('-vf lutrgb="r=negval:g=negval:b=negval"');
+    }
+
+    // Output settings
+    args.push('-c:v libx264 -preset superfast -crf 22 -c:a aac -strict -2');
+    args.push(`"${outputPath}"`);
+
+    const ffmpegCmd = `ffmpeg -y ${args.join(' ')}`;
+    
+    const { exec } = require('child_process');
+    exec(ffmpegCmd, async (error: any, stdout: any, stderr: any) => {
+      if (error) {
+        console.error('FFmpeg execution error:', error);
+        console.error('FFmpeg stderr:', stderr);
+        res.status(500).json({ success: false, error: 'Failed to process video via FFmpeg' });
+        return;
+      }
+
+      if (!fs.existsSync(outputPath)) {
+        res.status(500).json({ success: false, error: 'Output video file was not generated' });
+        return;
+      }
+
+      const newSize = fs.statSync(outputPath).size;
+
+      if (saveAsNew) {
+        // Create new asset
+        const newAsset = await prisma.mediaAsset.create({
+          data: {
+            workspaceId,
+            folderId: originalAsset.folderId,
+            fileName: `edited_${baseName}${extension}`,
+            fileUrl: `/uploads/${newFilename}`,
+            fileType: 'video',
+            fileSize: newSize,
+            storageKey: newFilename,
+            storageEngine: 'LOCAL',
+            uploadedById: (req as any).user?.id || null,
+          },
+        });
+        res.status(201).json({ success: true, data: newAsset });
+      } else {
+        // Overwrite
+        try {
+          if (fs.existsSync(inputPath)) {
+            fs.unlinkSync(inputPath);
+          }
+        } catch {}
+
+        const updatedAsset = await prisma.mediaAsset.update({
+          where: { id },
+          data: {
+            fileSize: newSize,
+            fileUrl: `/uploads/${newFilename}`,
+            storageKey: newFilename,
+            fileName: `edited_${baseName}${extension}`,
+          },
+        });
+        res.json({ success: true, data: updatedAsset });
+      }
+    });
+
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
