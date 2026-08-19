@@ -202,4 +202,75 @@ router.delete('/web-forms/:id', async (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
+// POST /api/v1/knowledge/crawl
+// Crawls website text content and imports into KbArticle memory category
+router.post('/crawl', async (req: Request, res: Response) => {
+  try {
+    const workspaceId = req.user!.workspaceId;
+    const { url } = req.body;
+    
+    if (!url) {
+      res.status(400).json({ success: false, error: 'URL is required' });
+      return;
+    }
+
+    // Fetch site HTML
+    const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!response.ok) {
+      res.status(400).json({ success: false, error: `Failed to fetch website. HTTP status: ${response.status}` });
+      return;
+    }
+    const html = await response.text();
+
+    // Parse clean text
+    const titleMatch = html.match(/<title>([^<]*)<\/title>/i);
+    const title = (titleMatch ? titleMatch[1].trim() : 'Scraped Page') || url;
+
+    let cleanText = html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+
+    cleanText = cleanText
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const maxContentLength = 8000;
+    if (cleanText.length > maxContentLength) {
+      cleanText = cleanText.substring(0, maxContentLength) + '...';
+    }
+
+    // Find/create category
+    let category = await prisma.kbCategory.findFirst({
+      where: { workspaceId, name: 'Scraped Website Memory' }
+    });
+
+    if (!category) {
+      category = await prisma.kbCategory.create({
+        data: {
+          workspaceId,
+          name: 'Scraped Website Memory',
+          slug: `scraped-website-memory-${Date.now()}`
+        }
+      });
+    }
+
+    const slug = `scraped-${Date.now()}`;
+    const article = await prisma.kbArticle.create({
+      data: {
+        workspaceId,
+        title: `${title} (${url})`,
+        slug,
+        content: `CRAWLED FROM: ${url}\n\nTEXT:\n${cleanText}`,
+        categoryId: category.id,
+        isPublic: true
+      }
+    });
+
+    res.json({ success: true, data: article, message: 'Website successfully crawled and imported to workspace AI memory!' });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;
