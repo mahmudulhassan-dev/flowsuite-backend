@@ -11,8 +11,15 @@ const mapPlatform = (channel: string): SocialPlatform => {
   if (norm === 'EMAIL' || norm === 'GMAIL') return SocialPlatform.GMAIL;
   if (norm === 'SMS') return SocialPlatform.SMS;
   if (norm === 'WHATSAPP') return SocialPlatform.WHATSAPP;
+  if (norm === 'WHATSAPP_BAILEYS') return SocialPlatform.WHATSAPP_BAILEYS;
   if (norm === 'WEB_CHAT') return SocialPlatform.WEB_CHAT;
-  return SocialPlatform.GMAIL;
+  if (norm === 'FACEBOOK' || norm === 'MESSENGER') return SocialPlatform.FACEBOOK;
+  if (norm === 'INSTAGRAM') return SocialPlatform.INSTAGRAM;
+  if (norm === 'TIKTOK') return SocialPlatform.TIKTOK;
+  if (norm === 'THREADS') return SocialPlatform.THREADS;
+  if (norm === 'TELEGRAM') return SocialPlatform.TELEGRAM;
+  if (norm === 'X' || norm === 'TWITTER') return SocialPlatform.X;
+  return SocialPlatform.WEB_CHAT;
 };
 
 // Helper to map status to ThreadStatus enum
