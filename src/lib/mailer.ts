@@ -218,7 +218,7 @@ export function buildCampaignHtml(
   campaignId: string,
   unsubscribeUrl = 'https://suite.amanasuite.com/unsubscribe'
 ): string {
-  const trackingPixel = `https://flowsuite.amansuite.com/api/v1/marketing/tracking/open?campaignId=${campaignId}`;
+  const trackingPixel = `https://flowsuite.amanasuite.com/api/v1/marketing/tracking/open?campaignId=${campaignId}`;
   return `
 <!DOCTYPE html>
 <html lang="en">

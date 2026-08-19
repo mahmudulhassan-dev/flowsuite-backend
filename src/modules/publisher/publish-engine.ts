@@ -68,7 +68,7 @@ export async function publishPostToAccount(
         return {
           success: true,
           externalPostId: `gen_${randomId}`,
-          externalPostUrl: `https://flowsuite.amansuite.com/post/${randomId}`
+          externalPostUrl: `https://flowsuite.amanasuite.com/post/${randomId}`
         };
     }
   } catch (error: any) {
