@@ -71,9 +71,25 @@ io.on('connection', (socket) => {
 });
 
 app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: false }));
+
+const allowedOrigins = new Set(
+  [
+    ENV.FRONTEND_DOMAIN,
+    ENV.BACKEND_DOMAIN,
+    'http://localhost:3000',
+    'http://localhost:5173',
+    ...ENV.ALLOWED_ORIGINS.split(',').map((s) => s.trim()),
+  ].filter(Boolean)
+);
+
 app.use(cors({
   origin: (origin, callback) => {
-    callback(null, true);
+    // Allow non-browser clients (curl, mobile apps, server-to-server) with no Origin header.
+    if (!origin || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Origin not allowed by CORS'));
   },
   credentials: true
 }));
@@ -147,7 +163,8 @@ app.use('/admin', adminRouter);
 // Global error handler
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('❌ Unhandled error:', err.message);
-  res.status(500).json({ success: false, error: err.message });
+  const isProd = ENV.NODE_ENV === 'production';
+  res.status(500).json({ success: false, error: isProd ? 'Internal server error' : err.message });
 });
 
 httpServer.listen(ENV.PORT, () => {

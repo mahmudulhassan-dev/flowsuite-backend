@@ -1,9 +1,87 @@
-import { Router, Request, Response } from 'express';
+import express, { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../../lib/prisma';
 import { PlanType } from '@prisma/client';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { ENV } from '../../config/env';
 import os from 'os';
 
 const router = Router();
+
+const ADMIN_COOKIE = 'fs_admin';
+
+function readCookie(req: Request, name: string): string | null {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(';')) {
+    const [key, ...rest] = part.trim().split('=');
+    if (key === name) return decodeURIComponent(rest.join('='));
+  }
+  return null;
+}
+
+function isValidAdminSession(req: Request): boolean {
+  const token = readCookie(req, ADMIN_COOKIE);
+  if (!token) return false;
+  try {
+    const payload = jwt.verify(token, ENV.JWT_SECRET) as { admin?: boolean };
+    return payload.admin === true;
+  } catch {
+    return false;
+  }
+}
+
+// Guard for HTML pages — bounce to the login screen.
+function requireAdminPage(req: Request, res: Response, next: NextFunction): void {
+  if (!isValidAdminSession(req)) {
+    res.redirect('/admin/login');
+    return;
+  }
+  next();
+}
+
+// Guard for JSON endpoints — return 401.
+function requireAdminApi(req: Request, res: Response, next: NextFunction): void {
+  if (!isValidAdminSession(req)) {
+    res.status(401).json({ success: false, error: 'Admin authentication required' });
+    return;
+  }
+  next();
+}
+
+function loginPageHtml(error?: string): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlowSuite — SuperAdmin Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-6 shadow-2xl">
+    <div class="text-center space-y-2">
+      <h1 class="text-2xl font-bold text-white">SuperAdmin Gateway</h1>
+      <p class="text-slate-400 text-sm">FlowSuite Root Control</p>
+    </div>
+    ${error ? `<div class="bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm rounded-xl px-4 py-3">${error}</div>` : ''}
+    <form action="/admin/login" method="POST" class="space-y-4">
+      <div>
+        <label class="text-xs font-semibold text-slate-300">SuperAdmin Email</label>
+        <input name="email" type="email" placeholder="you@example.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-white text-sm mt-1" required>
+      </div>
+      <div>
+        <label class="text-xs font-semibold text-slate-300">Master Password</label>
+        <input name="password" type="password" placeholder="••••••••" class="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-white text-sm mt-1" required>
+      </div>
+      <button type="submit" class="w-full bg-teal-600 hover:bg-teal-500 text-white font-semibold py-3 rounded-xl transition-all text-sm">
+        Authenticate
+      </button>
+    </form>
+  </div>
+</body>
+</html>`;
+}
 
 // Cache or generate the HTML
 const getAdminHtml = async () => {
@@ -142,7 +220,7 @@ const getAdminHtml = async () => {
         <div class="text-xs font-semibold text-white truncate">Super Admin</div>
         <div class="text-[10px] text-slate-500 truncate">admin@flowsuite.com</div>
       </div>
-      <a href="/admin/login" class="text-slate-500 hover:text-red-400 transition-colors text-xs">Exit</a>
+      <a href="/admin/logout" class="text-slate-500 hover:text-red-400 transition-colors text-xs">Exit</a>
     </div>
   </div>
 </aside>
@@ -406,49 +484,60 @@ const getAdminHtml = async () => {
 </html>`;
 };
 
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requireAdminPage, async (_req: Request, res: Response) => {
   try {
     const html = await getAdminHtml();
     res.send(html);
   } catch (error: any) {
-    res.status(500).send(`Error generating admin dashboard: ${error.message}`);
+    console.error('Admin dashboard error:', error.message);
+    res.status(500).send('Error generating admin dashboard');
   }
 });
 
 router.get('/login', (req: Request, res: Response) => {
-  res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FlowSuite — SuperAdmin Login</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex items-center justify-center p-4">
-  <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-6 shadow-2xl">
-    <div class="text-center space-y-2">
-      <h1 class="text-2xl font-bold text-white">SuperAdmin Gateway</h1>
-      <p class="text-slate-400 text-sm">FlowSuite Enterprise Root Control</p>
-    </div>
-    <form action="/admin" method="GET" class="space-y-4">
-      <div>
-        <label class="text-xs font-semibold text-slate-300">SuperAdmin Email</label>
-        <input type="email" value="admin@flowsuite.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-white text-sm mt-1" required>
-      </div>
-      <div>
-        <label class="text-xs font-semibold text-slate-300">Master Password</label>
-        <input type="password" value="password" class="w-full bg-slate-950 border border-slate-800 rounded-xl py-2.5 px-4 text-white text-sm mt-1" required>
-      </div>
-      <button type="submit" class="w-full bg-purple-600 hover:bg-purple-500 text-white font-semibold py-3 rounded-xl transition-all text-sm">
-        Authenticate SuperAdmin
-      </button>
-    </form>
-  </div>
-</body>
-</html>`);
+  if (isValidAdminSession(req)) {
+    res.redirect('/admin');
+    return;
+  }
+  res.send(loginPageHtml());
 });
 
-router.get('/tenants', async (req: Request, res: Response) => {
+router.post('/login', express.urlencoded({ extended: false }), async (req: Request, res: Response) => {
+  const { email, password } = req.body || {};
+
+  let ok = false;
+  if (email && password && email === ENV.ADMIN_EMAIL) {
+    if (ENV.ADMIN_PASSWORD_HASH) {
+      ok = await bcrypt.compare(String(password), ENV.ADMIN_PASSWORD_HASH);
+    } else if (ENV.ADMIN_PASSWORD) {
+      ok = String(password) === ENV.ADMIN_PASSWORD;
+    }
+  }
+
+  if (!ok) {
+    const hint = !ENV.ADMIN_PASSWORD && !ENV.ADMIN_PASSWORD_HASH
+      ? 'Admin panel is locked: set ADMIN_EMAIL and ADMIN_PASSWORD on the server first.'
+      : 'Invalid email or password.';
+    res.status(401).send(loginPageHtml(hint));
+    return;
+  }
+
+  const token = jwt.sign({ admin: true, email }, ENV.JWT_SECRET, { expiresIn: '8h' });
+  res.cookie(ADMIN_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: ENV.NODE_ENV === 'production',
+    maxAge: 8 * 60 * 60 * 1000,
+  });
+  res.redirect('/admin');
+});
+
+router.get('/logout', (_req: Request, res: Response) => {
+  res.clearCookie(ADMIN_COOKIE);
+  res.redirect('/admin/login');
+});
+
+router.get('/tenants', requireAdminApi, async (_req: Request, res: Response) => {
   try {
     const orgs = await prisma.organization.findMany({
       include: {
@@ -457,11 +546,12 @@ router.get('/tenants', async (req: Request, res: Response) => {
     });
     res.json({ success: true, data: orgs });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('Admin tenants error:', error.message);
+    res.status(500).json({ success: false, error: 'Failed to load tenants' });
   }
 });
 
-router.get('/metrics', async (req: Request, res: Response) => {
+router.get('/metrics', requireAdminApi, async (_req: Request, res: Response) => {
   res.json({
     success: true,
     metrics: {

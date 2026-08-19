@@ -11,4 +11,15 @@ export const ENV = {
   FRONTEND_DOMAIN: process.env.FRONTEND_DOMAIN || 'https://suite.amanasuite.com',
   S3_BUCKET: process.env.S3_BUCKET || 'flowsuite-media-assets',
   S3_REGION: process.env.S3_REGION || 'us-east-1',
+
+  // SuperAdmin panel credentials (no default password — panel stays locked until set)
+  ADMIN_EMAIL: process.env.ADMIN_EMAIL || 'admin@flowsuite.com',
+  ADMIN_PASSWORD: process.env.ADMIN_PASSWORD || '',
+  ADMIN_PASSWORD_HASH: process.env.ADMIN_PASSWORD_HASH || '',
+
+  // Extra browser origins allowed to call the API (comma-separated)
+  ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || '',
+
+  // Social login verification
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
 };

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../../lib/prisma';
 import { hashPassword, comparePassword, generateToken } from '../../utils/auth';
 import { sendMail, buildWelcomeEmail, buildPasswordResetEmail } from '../../lib/mailer';
+import { ENV } from '../../config/env';
 import crypto from 'crypto';
 
 export async function register(req: Request, res: Response): Promise<void> {
@@ -315,7 +316,8 @@ export async function resetPassword(req: Request, res: Response): Promise<void> 
 // OTP STORAGE & PHONE AUTH
 // ─────────────────────────────────────────────────────────────────────────────
 
-const otpStorage: Record<string, string> = {};
+const otpStorage: Record<string, { code: string; expires: number }> = {};
+const OTP_TTL_MS = 5 * 60 * 1000;
 
 export async function sendOtp(req: Request, res: Response): Promise<void> {
   try {
@@ -327,16 +329,18 @@ export async function sendOtp(req: Request, res: Response): Promise<void> {
 
     // Generate random 6-digit OTP code
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    otpStorage[phone] = code;
+    otpStorage[phone] = { code, expires: Date.now() + OTP_TTL_MS };
 
-    console.log(`[OTP] Sent to ${phone}: ${code}`);
+    const isProd = ENV.NODE_ENV === 'production';
+    // In production the code must be delivered via a real SMS provider (configured separately).
+    console.log(`[OTP] Generated for ${phone}${isProd ? '' : `: ${code}`}`);
 
     res.json({
       success: true,
-      message: `OTP code sent successfully (Use: ${code} or 123456 to test)`,
+      message: isProd ? 'OTP code sent successfully' : `OTP code sent (dev code: ${code})`,
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ success: false, error: 'Failed to send OTP' });
   }
 }
 
@@ -348,13 +352,13 @@ export async function verifyOtp(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    const savedCode = otpStorage[phone];
-    if (code !== '123456' && code !== savedCode) {
+    const saved = otpStorage[phone];
+    if (!saved || saved.expires < Date.now() || code !== saved.code) {
       res.status(400).json({ success: false, error: 'Invalid or expired verification code' });
       return;
     }
 
-    // Clear code
+    // Clear code (single use)
     delete otpStorage[phone];
 
     // Find user by phone number
@@ -465,13 +469,63 @@ export async function verifyOtp(req: Request, res: Response): Promise<void> {
 // SOCIAL LOGIN (GOOGLE / FACEBOOK / APPLE)
 // ─────────────────────────────────────────────────────────────────────────────
 
+interface VerifiedIdentity {
+  email: string;
+  fullName: string;
+  uid: string;
+}
+
+// Verifies the login proof directly with the provider so a client cannot claim an arbitrary email.
+async function verifySocialIdentity(
+  platform: string,
+  body: Record<string, any>
+): Promise<VerifiedIdentity | null> {
+  const p = String(platform || '').toLowerCase();
+
+  if (p === 'google') {
+    const idToken = body.idToken;
+    if (!idToken) return null;
+    const resp = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
+    );
+    if (!resp.ok) return null;
+    const d: any = await resp.json();
+    if (ENV.GOOGLE_CLIENT_ID && d.aud !== ENV.GOOGLE_CLIENT_ID) return null;
+    if (!d.email || d.email_verified === false || d.email_verified === 'false') return null;
+    return { email: d.email, fullName: d.name || d.email, uid: d.sub };
+  }
+
+  if (p === 'facebook') {
+    const accessToken = body.accessToken;
+    if (!accessToken) return null;
+    const resp = await fetch(
+      `https://graph.facebook.com/me?fields=id,name,email&access_token=${encodeURIComponent(accessToken)}`
+    );
+    if (!resp.ok) return null;
+    const d: any = await resp.json();
+    if (!d.email || !d.id) return null;
+    return { email: d.email, fullName: d.name || d.email, uid: d.id };
+  }
+
+  // Apple and other providers are not verified yet — reject rather than trust the client.
+  return null;
+}
+
 export async function socialLogin(req: Request, res: Response): Promise<void> {
   try {
-    const { email, fullName, platform, uid } = req.body;
-    if (!email || !platform || !uid) {
-      res.status(400).json({ success: false, error: 'Email, platform, and external UID are required' });
+    const { platform } = req.body;
+    if (!platform) {
+      res.status(400).json({ success: false, error: 'Login platform is required' });
       return;
     }
+
+    const identity = await verifySocialIdentity(platform, req.body);
+    if (!identity) {
+      res.status(401).json({ success: false, error: 'Could not verify this social login' });
+      return;
+    }
+
+    const { email, fullName, uid } = identity;
 
     let user = await prisma.user.findUnique({
       where: { email },
@@ -556,7 +610,7 @@ export async function socialLogin(req: Request, res: Response): Promise<void> {
 
     res.json({
       success: true,
-      message: `Login successful via ${platform}`,
+      message: `Login successful via ${String(platform)}`,
       data: {
         user: {
           id: user.id,
